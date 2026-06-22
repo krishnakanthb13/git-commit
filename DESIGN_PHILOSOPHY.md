@@ -14,7 +14,7 @@ This document outlines the core architectural and design decisions behind the AI
 
 ## 3. Keyboard-First Interactive UI
 - **Motivation**: Git commit processes should be fast and simple. Keyboard hotkeys allow power-users to speed through staging, reviewing, and committing without mouse interaction.
-- **Implementation**: Uses short character keys (`c`, `e`, `v`, `x`) to control the commit loop and simple comma-separated index selection for file staging.
+- **Implementation**: Uses short character keys (`c`, `e`, `v`, `d`, `s`, `x`) to control the commit loop. File staging uses comma-separated index selection. The unstage option (`u`) allows in-flight corrections without restarting.
 
 ## 4. Automatic Version Alignment
 - **Motivation**: Semantic versioning is often neglected or updated out of sync with commits.
@@ -23,3 +23,15 @@ This document outlines the core architectural and design decisions behind the AI
 ## 5. Automated Workflow Lifecycle
 - **Motivation**: Committing is only step one of modern development. A professional tool should support the full lifecycle up to deployment.
 - **Implementation**: After pushing, the tool attempts to use native CLIs like GitHub's `gh` to handle immediate Pull Request creation and interactive live-streaming of CI/CD pipelines directly in the terminal.
+
+## 6. Resilience & Crash Safety
+- **Motivation**: A commit tool that loses your AI-generated message on a crash forces a costly re-run of the API.
+- **Implementation**: Immediately after a successful Gemini response, the tool writes a session snapshot to `.git/COMMITGEN_STATE`. On the next launch, it offers to restore the session, skipping the API call entirely. State is always cleared on a clean exit.
+
+## 7. User Configurability Without Complexity
+- **Motivation**: Different repos have different conventions. A hardcoded tool becomes an obstacle for teams.
+- **Implementation**: An optional `.commitgenrc` JSON file (local or global) lets users override defaults like `default_bump`, `max_diff_length`, and `model`. Environment variables always take precedence over config file values, allowing CI pipelines to override without editing files.
+
+## 8. Headless & CI/CD Compatibility
+- **Motivation**: The tool should be usable as a step in automated pipelines, not just interactively.
+- **Implementation**: `--non-interactive` mode (and auto-detection of `CI`/`GITHUB_ACTIONS` env vars) skips all prompts, auto-stages everything, and uses config defaults throughout. `--dry-run` mode allows full pipeline testing without writing any git objects.

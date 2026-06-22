@@ -599,85 +599,239 @@ def detect_conventional_scope(files):
     
     return list(scopes) if scopes else None
 
+def load_config():
+    """Load config from .commitgenrc (JSON) in the repo or home directory."""
+    defaults = {
+        "default_bump": "patch",
+        "max_diff_length": 20000,
+        "auto_push": False,
+        "model": "gemini-2.0-flash-lite"
+    }
+    for path in [".commitgenrc", os.path.expanduser("~/.commitgenrc")]:
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    defaults.update(json.load(f))
+                print_info(f"Loaded config from {path}")
+                break
+            except Exception as e:
+                print_warn(f"Could not load config from {path}: {e}")
+    return defaults
+
+def check_dependencies():
+    """Check required tools are available and warn about optional ones."""
+    if sys.version_info < (3, 6):
+        print_error("Python 3.6 or higher is required.")
+        sys.exit(1)
+    if not shutil.which("git"):
+        print_error("Git is not installed or not in PATH.")
+        sys.exit(1)
+    if not shutil.which("gh"):
+        print_warn("GitHub CLI (gh) not found — PR creation and CI monitoring will be unavailable.")
+
+def is_binary_file(filepath):
+    """Detect binary files by scanning the first 1 KB for null bytes."""
+    try:
+        with open(filepath, 'rb') as f:
+            return b'\0' in f.read(1024)
+    except (IOError, OSError):
+        return True
+
+def check_precommit_hooks():
+    """Run pre-commit hooks if .pre-commit-config.yaml exists."""
+    if not os.path.exists('.pre-commit-config.yaml'):
+        return True
+    print_info("Running pre-commit hooks...")
+    try:
+        subprocess.run(["pre-commit", "run", "--all-files"], check=True)
+        print_success("Pre-commit hooks passed!")
+        return True
+    except subprocess.CalledProcessError:
+        print_error("Pre-commit hooks failed!")
+        choice = input("Commit anyway? (y/n) [n]: ").strip().lower()
+        return choice == 'y'
+    except FileNotFoundError:
+        print_warn("pre-commit not installed. Skipping hooks.")
+        return True
+
+def detect_conventional_commits_usage():
+    """Return True if >50% of recent commits use conventional format."""
+    log = run_git_cmd(["log", "--oneline", "-20"])
+    if not log:
+        return False
+    pattern = re.compile(r'^[0-9a-f]+ (feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)(\(.+\))?:')
+    lines = log.strip().split('\n')
+    matches = sum(1 for l in lines if pattern.match(l))
+    return len(lines) > 0 and matches / len(lines) > 0.5
+
+def is_ci_environment():
+    """Detect if running inside a CI/CD system."""
+    return any(os.getenv(v) for v in ['CI', 'GITHUB_ACTIONS', 'GITLAB_CI', 'JENKINS_URL', 'TRAVIS'])
+
+def save_session_state(state):
+    """Persist session state to .git/COMMITGEN_STATE for crash recovery."""
+    try:
+        with open('.git/COMMITGEN_STATE', 'w', encoding='utf-8') as f:
+            json.dump(state, f)
+    except Exception:
+        pass
+
+def load_session_state():
+    """Load a previously saved session state if it exists."""
+    path = '.git/COMMITGEN_STATE'
+    if os.path.exists(path):
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return None
+
+def clear_session_state():
+    """Delete the persisted session state file."""
+    path = '.git/COMMITGEN_STATE'
+    if os.path.exists(path):
+        try:
+            os.remove(path)
+        except Exception:
+            pass
+
 def main():
     load_dotenv()
-    
+    check_dependencies()
+
+    # Parse flags
+    DRY_RUN = "--dry-run" in sys.argv
+    NON_INTERACTIVE = "--non-interactive" in sys.argv or is_ci_environment()
+    if DRY_RUN:
+        print_info("DRY RUN MODE — no changes will be committed or pushed.")
+    if NON_INTERACTIVE:
+        print_info("Running in non-interactive mode.")
+
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         print_error("GEMINI_API_KEY not found in environment or .env file.")
         print_info("Please create a .env file containing: GEMINI_API_KEY=your_key_here")
         sys.exit(1)
 
-    model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-lite")
+    config = load_config()
+    model = os.getenv("GEMINI_MODEL", config["model"])
+    MAX_DIFF_SIZE = config["max_diff_length"]
+
+    # Session recovery
+    saved_state = load_session_state()
+    if saved_state and NON_INTERACTIVE:
+        # Non-interactive mode should always start fresh — don't resume interactively
+        print_info("Clearing saved session (non-interactive mode).")
+        clear_session_state()
+        saved_state = None
+    elif saved_state:
+        print_info("Found a saved session from a previous run!")
+        resume = input("Resume previous session? (y/n) [n]: ").strip().lower()
+        if resume == 'y':
+            summary = saved_state.get('summary', '')
+            description = saved_state.get('description', '')
+            bump_choice = saved_state.get('bump_choice', config["default_bump"])
+            staged = saved_state.get('staged', [])
+            curr_version = saved_state.get('curr_version', '0.0.0')
+            user_context = ""  # not available in resumed session
+            diff = "(Diff not available — resumed from saved session)"
+            print_info(f"Resumed. Staged: {staged}")
+        else:
+            clear_session_state()
+            saved_state = None
 
     # 1. Git Status & Interactive Staging (always show picker)
-    staged, unstaged, untracked = get_git_files()
-    if not staged and not unstaged and not untracked:
-        print_success("Nothing to commit, working tree clean.")
-        sys.exit(0)
+    if not saved_state or not saved_state.get('summary'):
+        staged, unstaged, untracked = get_git_files()
+        if not staged and not unstaged and not untracked:
+            print_success("Nothing to commit, working tree clean.")
+            sys.exit(0)
 
-    staged_any = prompt_stage_files(staged, unstaged, untracked)
-    if not staged_any:
-        sys.exit(0)
-    staged, _, _ = get_git_files()
+        if NON_INTERACTIVE:
+            # In CI mode: auto-stage all and proceed
+            for f, _ in ([(f, 'x') for f in unstaged] + [(f, 'x') for f in untracked]):
+                run_git_cmd(["add", f])
+            staged, _, _ = get_git_files()
+        else:
+            staged_any = prompt_stage_files(staged, unstaged, untracked)
+            if not staged_any:
+                sys.exit(0)
+            staged, _, _ = get_git_files()
 
-    if not staged:
-        print_error("No files staged for commit.")
-        sys.exit(1)
+        if not staged:
+            print_error("No files staged for commit.")
+            sys.exit(1)
 
-    print_info(f"Staged files for commit:\n" + "\n".join(f"  - {f}" for f in staged))
-    
-    show_commit_stats(staged)
+        print_info(f"Staged files for commit:\n" + "\n".join(f"  - {f}" for f in staged))
 
-    # 2. Detect & Display Version Info
-    curr_version, ver_source = detect_version()
-    print_info(f"Detected current version: {curr_version} (from {ver_source})")
-    
-    branch_info = get_branch_version_info()
-    if branch_info:
-        print_info(f"Current branch: {branch_info}")
+        # Warn about binary files
+        binary_files = [f for f in staged if is_binary_file(f)]
+        if binary_files:
+            print_warn(f"Binary files detected (excluded from AI diff): {', '.join(binary_files)}")
 
-    # 3. User Input Context
-    user_context = input(f"\n{COLOR_CYAN}{COLOR_BOLD}Optional - Enter context/notes for the commit (press Enter to skip):{COLOR_RESET} ").strip()
+        show_commit_stats(staged)
 
-    # 4. Git Diff (exclude binary files — they produce unreadable noise for the LLM)
-    diff = run_git_cmd(["diff", "--cached", "--diff-filter=ACMRT"])
-    if not diff:
-        # Might be binary-only commit; still allow it to proceed
-        print_warn("No text diff available (binary-only or empty diff). Proceeding with file list only.")
-        diff = "(No text diff — changes may include binary files or are otherwise empty.)"
+        # 2. Detect & Display Version Info
+        curr_version, ver_source = detect_version()
+        print_info(f"Detected current version: {curr_version} (from {ver_source})")
 
-    # Truncate diff if extremely large to save tokens/cost
-    MAX_DIFF_SIZE = 20000
-    if len(diff) > MAX_DIFF_SIZE:
-        print_warn("Diff is large. Optimizing to fit context window...")
-        lines = diff.split('\n')
-        optimized_lines = []
-        for line in lines:
-            if line.startswith('diff --git'):
-                optimized_lines.append(line)
-            elif len('\n'.join(optimized_lines)) > MAX_DIFF_SIZE - 1000:
-                break
-            else:
-                optimized_lines.append(line)
-        diff = '\n'.join(optimized_lines)
-        diff += "\n... [diff truncated, showing key changes only] ..."
+        branch_info = get_branch_version_info()
+        if branch_info:
+            print_info(f"Current branch: {branch_info}")
 
-    # 5. Gemini API Call
-    recent_commits = get_recent_commits(3)
-    recent_context = f"\nRecent Commits History:\n{recent_commits}\n" if recent_commits else ""
+        # Detect repo conventions
+        if detect_conventional_commits_usage():
+            print_info("Repo uses conventional commits — AI will follow that format.")
 
-    template = load_commit_template()
-    template_context = f"\nProject Commit Template/Guidelines:\n{template}\nPlease follow these guidelines.\n" if template else ""
+        # Pre-commit hooks
+        if not check_precommit_hooks():
+            print_info("Commit cancelled due to hook failures.")
+            sys.exit(1)
 
-    issues = extract_issue_references()
-    issues_context = f"\nRelated Issues: {', '.join(['#' + i for i in issues])}\n(Please include these issue numbers if relevant)\n" if issues else ""
-    
-    scope = detect_conventional_scope(staged)
-    scope_context = f"\nDetected scope: {', '.join(scope)}\n" if scope else ""
+        # 3. User Input Context
+        if NON_INTERACTIVE:
+            user_context = ""
+        else:
+            user_context = input(f"\n{COLOR_CYAN}{COLOR_BOLD}Optional - Enter context/notes for the commit (press Enter to skip):{COLOR_RESET} ").strip()
 
-    print_info("Generating commit message via Gemini...")
-    prompt_text = f"""
+        # 4. Git Diff (exclude binary files — they produce unreadable noise for the LLM)
+        diff = run_git_cmd(["diff", "--cached", "--diff-filter=ACMRT"])
+        if not diff:
+            print_warn("No text diff available (binary-only or empty diff). Proceeding with file list only.")
+            diff = "(No text diff — changes may include binary files or are otherwise empty.)"
+
+        # Truncate diff if extremely large to save tokens/cost
+        if len(diff) > MAX_DIFF_SIZE:
+            print_warn("Diff is large. Optimizing to fit context window...")
+            lines = diff.split('\n')
+            optimized_lines = []
+            for line in lines:
+                if line.startswith('diff --git'):
+                    optimized_lines.append(line)
+                elif len('\n'.join(optimized_lines)) > MAX_DIFF_SIZE - 1000:
+                    break
+                else:
+                    optimized_lines.append(line)
+            diff = '\n'.join(optimized_lines)
+            diff += "\n... [diff truncated, showing key changes only] ..."
+
+    if not saved_state or not saved_state.get('summary'):
+        # 5. Gemini API Call
+        recent_commits = get_recent_commits(3)
+        recent_context = f"\nRecent Commits History:\n{recent_commits}\n" if recent_commits else ""
+
+        template = load_commit_template()
+        template_context = f"\nProject Commit Template/Guidelines:\n{template}\nPlease follow these guidelines.\n" if template else ""
+
+        issues = extract_issue_references()
+        issues_context = f"\nRelated Issues: {', '.join(['#' + i for i in issues])}\n(Please include these issue numbers if relevant)\n" if issues else ""
+        
+        scope = detect_conventional_scope(staged)
+        scope_context = f"\nDetected scope: {', '.join(scope)}\n" if scope else ""
+
+        print_info("Generating commit message via Gemini...")
+        prompt_text = f"""
 You are a git commit message generator helper.
 Analyze the following git diff and user provided context, then output a structured commit summary and description.
 Use conventional commit format if possible (feat:, fix:, docs:, style:, refactor:, test:, chore:, etc.).
@@ -693,19 +847,40 @@ Git Diff:
 {diff}
 ```
 """
-    try:
-        ai_res = call_gemini_api(api_key, model, prompt_text)
-        summary = ai_res.get("summary", "").strip()
-        description = ai_res.get("description", "").strip()
-    except Exception as e:
-        print_error(f"Failed to generate commit message: {e}")
-        # Default fallback
-        summary = "update: code modifications"
-        description = "- Minor changes/updates"
+        try:
+            ai_res = call_gemini_api(api_key, model, prompt_text)
+            summary = ai_res.get("summary", "").strip()
+            description = ai_res.get("description", "").strip()
+        except Exception as e:
+            print_error(f"Failed to generate commit message: {e}")
+            summary = "update: code modifications"
+            description = "- Minor changes/updates"
+
+        # Save session state in case of crash
+        save_session_state({
+            'summary': summary,
+            'description': description,
+            'bump_choice': config["default_bump"],
+            'staged': staged,
+            'curr_version': curr_version
+        })
+    else:
+        # Resumed from saved session
+        summary = saved_state.get('summary', 'update: code modifications')
+        description = saved_state.get('description', '')
+        bump_choice = saved_state.get('bump_choice', config["default_bump"])
+        staged = saved_state.get('staged', staged)
+        curr_version = saved_state.get('curr_version', curr_version)
 
     # 6. Interactive Review Loop
-    bump_choice = "patch"  # default bump
-    
+    bump_choice = config.get("default_bump", "patch") if not saved_state else saved_state.get('bump_choice', 'patch')
+
+    # Guard: ensure user_context and diff are always defined (resume path may skip them)
+    if 'user_context' not in dir() and 'user_context' not in locals():
+        user_context = ""
+    if 'diff' not in dir() and 'diff' not in locals():
+        diff = "(Diff not available — resumed from saved session)"
+
     # Try to extract version from user context
     ver_match = re.search(r'\b(v?\d+\.\d+\.\d+(?:-[a-zA-Z0-9\.]+)?)\b', user_context)
     if ver_match:
@@ -814,14 +989,12 @@ Git Diff:
         else:
             print_warn("Invalid option selection.")
 
-    # 7. Apply version changes
+    # 7. Assemble final commit message
     if bump_choice != "none":
         final_version = increment_version(curr_version, bump_choice)
-        update_version_in_files(final_version)
     else:
         final_version = None
 
-    # Assemble final commit message
     if final_version:
         clean_final = final_version.lstrip("vV")
         version_prefix = f"v{clean_final}"
@@ -838,7 +1011,16 @@ Git Diff:
 
     if description:
         full_commit_msg += f"\n\n{description}"
-        
+
+    # Dry Run exit
+    if DRY_RUN:
+        print_info("DRY RUN: Would commit with message:")
+        print(f"  {full_commit_msg}")
+        print_success("Dry run complete — no changes committed.")
+        clear_session_state()
+        sys.exit(0)
+
+    # Apply version changes
     if bump_choice != "none" and final_version:
         update_version_in_files(final_version)
 
@@ -852,9 +1034,6 @@ Git Diff:
         update_changelog(final_version, summary, description)
         
         commit_args = ["git", "commit", "-m", full_commit_msg]
-        if description:
-            commit_args.extend(["-m", description])
-            
         try:
             subprocess.run(commit_args, check=True)
             # Create tag
@@ -865,9 +1044,6 @@ Git Diff:
             sys.exit(1)
     else:
         commit_args = ["git", "commit", "-m", full_commit_msg]
-        if description:
-            commit_args.extend(["-m", description])
-            
         try:
             subprocess.run(commit_args, check=True)
             print_success("Commit created!")
@@ -917,11 +1093,12 @@ Git Diff:
                 print_info("Skipped push. Run 'git push' manually when ready.")
         else:
             print_info("No git remote configured. Skipped push.")
-    except Exception as e:
-        print_warn(f"Failed to check for remotes: {e}")
+    except subprocess.CalledProcessError as e:
+        print_error(f"Failed to complete Git actions: {e}")
         input("\nPress Enter to exit...")
         sys.exit(1)
-        
+
+    clear_session_state()
     input("\nPress Enter to exit...")
 
 if __name__ == "__main__":
