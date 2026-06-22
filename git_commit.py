@@ -7,6 +7,7 @@ import re
 import urllib.request
 import urllib.error
 import time
+import shutil
 
 # ANSI colors for rich CLI interface
 COLOR_GREEN = "\033[92m"
@@ -277,6 +278,74 @@ def prompt_stage_files(staged, unstaged, untracked):
             run_git_cmd(["add", f])
             print_success(f"Staged: {f}")
         return True
+
+def monitor_ci():
+    """Prompt and monitor CI using GitHub CLI if available."""
+    ci_choice = input(f"\n{COLOR_CYAN}{COLOR_BOLD}Monitor CI pipeline? (y/n) [n]:{COLOR_RESET} ").strip().lower()
+    if ci_choice != "y":
+        return
+        
+    if not shutil.which("gh"):
+        print_warn("GitHub CLI (gh) is not installed. Please install it to monitor CI (https://cli.github.com/).")
+        return
+
+    print_info("Checking for active CI runs...")
+    try:
+        # Give GitHub a second to register the push event
+        time.sleep(2)
+        
+        commit_hash = run_git_cmd(["rev-parse", "HEAD"])
+        if commit_hash:
+            res = subprocess.run(["gh", "run", "list", "--commit", commit_hash, "--json", "databaseId,status,name,conclusion"], 
+                                 capture_output=True, text=True, check=True)
+        else:
+            res = subprocess.run(["gh", "run", "list", "--limit", "1", "--json", "databaseId,status,name,conclusion"], 
+                                 capture_output=True, text=True, check=True)
+                                 
+        output = res.stdout.strip()
+        if not output or output == "[]":
+            print_warn("No CI runs found for this commit. It might take a moment to trigger, or no CI is configured.")
+            return
+            
+        runs = json.loads(output)
+        if not runs:
+            print_warn("No CI runs found.")
+            return
+            
+        latest_run = runs[0]
+        run_id = str(latest_run["databaseId"])
+        status = latest_run["status"]
+        name = latest_run["name"]
+        conclusion = latest_run.get("conclusion", "")
+        
+        if status == "completed":
+            if conclusion == "success":
+                print_success(f"CI Run '{name}' already completed successfully! 🎉")
+            else:
+                print_error(f"CI Run '{name}' completed with status: {conclusion}")
+            return
+            
+        print_info(f"Monitoring CI Run '{name}' (Status: {status})...")
+        subprocess.run(["gh", "run", "watch", run_id])
+        
+        # Check final status
+        res_final = subprocess.run(["gh", "run", "view", run_id, "--json", "conclusion"], 
+                                   capture_output=True, text=True)
+        if res_final.returncode == 0:
+            final_data = json.loads(res_final.stdout.strip())
+            if final_data.get("conclusion") == "success":
+                print_success(f"CI Pipeline '{name}' passed successfully! 🎉")
+            else:
+                print_error(f"CI Pipeline '{name}' failed ({final_data.get('conclusion')}).")
+                
+    except subprocess.CalledProcessError as e:
+        err_msg = e.stderr.lower() if e.stderr else ""
+        if "not a git repository" in err_msg or "resolve" in err_msg or "remote" in err_msg:
+            print_warn("GitHub CLI error. Ensure this repository is on GitHub and you are authenticated.")
+        else:
+            print_warn("Failed to fetch CI runs. Are you authenticated with 'gh auth login'?")
+    except Exception as e:
+        print_warn(f"Could not monitor CI: {e}")
 
 def call_gemini_api(api_key, model, prompt_text):
     """Call Gemini API to generate structured commit message."""
@@ -585,6 +654,9 @@ Git Diff:
                     subprocess.run(["git", "push", "origin", tag_name], check=True)
                     print_success(f"Tag '{tag_name}' pushed to remote.")
                 print_success("Push complete!")
+                
+                monitor_ci()
+                
             except subprocess.CalledProcessError as e:
                 print_error(f"Push failed: {e}")
         else:
