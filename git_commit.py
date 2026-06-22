@@ -6,6 +6,7 @@ import json
 import re
 import urllib.request
 import urllib.error
+import time
 
 # ANSI colors for rich CLI interface
 COLOR_GREEN = "\033[92m"
@@ -105,6 +106,9 @@ def increment_version(version_str, bump_type):
     if len(parts) != 3:
         # Fallback if not standard semver
         return clean_version
+
+    if bump_type.startswith("custom:"):
+        return bump_type.split(":", 1)[1]
 
     try:
         major, minor, patch = map(int, parts)
@@ -266,17 +270,27 @@ def call_gemini_api(api_key, model, prompt_text):
         method="POST"
     )
 
-    try:
-        with urllib.request.urlopen(req) as response:
-            res_data = json.loads(response.read().decode("utf-8"))
-            # Extract content from response
-            text_response = res_data["candidates"][0]["content"]["parts"][0]["text"]
-            return json.loads(text_response)
-    except urllib.error.HTTPError as e:
-        err_msg = e.read().decode("utf-8")
-        raise RuntimeError(f"Gemini API request failed: {e.code} - {err_msg}")
-    except Exception as e:
-        raise RuntimeError(f"An error occurred: {e}")
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
+        try:
+            with urllib.request.urlopen(req) as response:
+                res_data = json.loads(response.read().decode("utf-8"))
+                # Extract content from response
+                text_response = res_data["candidates"][0]["content"]["parts"][0]["text"]
+                return json.loads(text_response)
+        except urllib.error.HTTPError as e:
+            err_msg = e.read().decode("utf-8")
+            if e.code in [429, 503] and attempt < max_retries:
+                print_warn(f"Gemini API returned {e.code}. Retrying in {2 ** attempt}s ({attempt}/{max_retries})...")
+                time.sleep(2 ** attempt)
+                continue
+            raise RuntimeError(f"Gemini API request failed: {e.code} - {err_msg}")
+        except Exception as e:
+            if attempt < max_retries:
+                print_warn(f"API connection error: {e}. Retrying in {2 ** attempt}s ({attempt}/{max_retries})...")
+                time.sleep(2 ** attempt)
+                continue
+            raise RuntimeError(f"An error occurred: {e}")
 
 def main():
     load_dotenv()
@@ -359,13 +373,20 @@ Git Diff:
     while True:
         proposed_version = increment_version(curr_version, bump_choice) if bump_choice != "none" else curr_version
         
+        display_summary = summary
+        if proposed_version:
+            clean_proposed = proposed_version.lstrip("vV")
+            version_prefix = f"v{clean_proposed}+ "
+            if not display_summary.startswith(version_prefix):
+                display_summary = f"{version_prefix}- {display_summary}"
+                
         print(f"\n{COLOR_MAGENTA}================ PROPOSED COMMIT ================{COLOR_RESET}")
         print(f"{COLOR_BOLD}Files to commit:{COLOR_RESET}")
         for f in staged:
             print(f"  {f}")
         print(f"\n{COLOR_BOLD}Version Bump:{COLOR_RESET} {curr_version} -> {proposed_version} ({bump_choice})")
         print(f"\n{COLOR_BOLD}Commit Message:{COLOR_RESET}")
-        print(f"  {COLOR_GREEN}{summary}{COLOR_RESET}")
+        print(f"  {COLOR_GREEN}{display_summary}{COLOR_RESET}")
         if description:
             print(f"\n  {description}")
         print(f"{COLOR_MAGENTA}================================================={COLOR_RESET}")
@@ -402,13 +423,16 @@ Git Diff:
             if desc_lines:
                 description = "\n".join(desc_lines)
         elif action == "v":
-            v_bump = input("Select bump category (p = patch, m = minor, j = major, n = none) [p]: ").strip().lower()
+            v_bump = input("Select bump category (p=patch, m=minor, j=major, n=none, c=custom) [p]: ").strip().lower()
             if v_bump == 'm':
                 bump_choice = "minor"
             elif v_bump == 'j':
                 bump_choice = "major"
             elif v_bump == 'n':
                 bump_choice = "none"
+            elif v_bump == 'c':
+                custom_ver = input("Enter custom version (e.g. 1.2.3): ").strip()
+                bump_choice = f"custom:{custom_ver}" if custom_ver else "patch"
             else:
                 bump_choice = "patch"
         else:
@@ -422,7 +446,16 @@ Git Diff:
         final_version = None
 
     # Assemble final commit message
-    full_commit_msg = summary
+    if final_version:
+        clean_final = final_version.lstrip("vV")
+        version_prefix = f"v{clean_final}+ "
+        if not summary.startswith(version_prefix):
+            full_commit_msg = f"{version_prefix}- {summary}"
+        else:
+            full_commit_msg = summary
+    else:
+        full_commit_msg = summary
+
     if description:
         full_commit_msg += f"\n\n{description}"
 
