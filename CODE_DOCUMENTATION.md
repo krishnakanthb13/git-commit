@@ -19,18 +19,21 @@ This script implements the main execution loop. It is designed to be fully self-
 
 ### Main Functions
 
-- `load_dotenv()`: Manually parses the `.env` file in the current directory, extracting environment variables without requiring the `python-dotenv` package.
-- `run_git_cmd(args)`: A wrapper around `subprocess.run` to execute git commands and return their output safely.
-- `detect_version()`: Checks:
-  1. Git tags using `git tag -l` (using regex `v?(\d+)\.(\d+)\.(\d+)` to match semantic versions).
-  2. `package.json`'s `"version"` field.
-  3. `pyproject.toml`'s `version = "X.Y.Z"` property.
-- `increment_version(version_str, bump_type)`: Performs version bumping based on `major`, `minor`, or `patch` increments.
+- `load_dotenv()`: Manually parses the `.env` file in the current directory.
+- `run_git_cmd(args)`: A wrapper around `subprocess.run` to execute git commands safely.
+- `detect_version()`: Checks `git tag -l`, `package.json`, and `pyproject.toml`.
+- `increment_version(version_str, bump_type)`: Performs semantic version bumping.
 - `update_version_in_files(new_version)`: Overwrites the version fields inside `package.json` and `pyproject.toml` automatically on successful commits.
-- `get_git_files()`: Parses `git status --porcelain` to extract staged, unstaged, and untracked files.
-- `prompt_stage_files(...)`: Interactive command-line UI using `input()` to allow users to select which unstaged/untracked files to stage for commit.
-- `call_gemini_api(api_key, model, prompt_text)`: Sends a POST request via Python's standard `urllib.request` library directly to the Gemini REST API. Requests structured JSON outputs with schema matching `{"summary": "...", "description": "..."}`.
-- `main()`: Orchestrates the staging, version bump category selection, prompt assembly, API call execution, commit message review, and git execution.
+- `update_changelog(version, summary, description)`: Automatically appends the new commit to `CHANGELOG.md` under a new release block if the file exists.
+- `get_git_files()`: Parses `git status --porcelain -z` to extract staged, unstaged, and untracked files without truncation issues.
+- `prompt_stage_files(...)`: Interactive command-line UI to stage/unstage files before committing.
+- `show_commit_stats(staged)`: Displays `git diff --stat` and a language/extension breakdown for the staging area.
+- `detect_conventional_scope(files)`: Maps file paths (like `ui/` or `tests/`) to conventional commit scopes (`ui`, `test`) to feed into the prompt context.
+- `extract_issue_references()`: Scrapes the current branch name and recent Git logs for issue numbers (e.g., `#123` or `feat/123-`) to auto-link in the commit.
+- `check_spelling(text)`: Pipes the generated commit message to the system's `aspell` utility to detect typos.
+- `monitor_ci()`: Hooks into the GitHub CLI (`gh`) to search for and live-stream the output of matching GitHub Actions CI pipelines immediately after a push.
+- `call_gemini_api(api_key, model, prompt_text)`: Sends a POST request directly to the Gemini REST API via `urllib.request`. Enforces JSON schemas and includes exponential backoff retry logic.
+- `main()`: Orchestrates the staging, context building, API call, interactive review loop, committing, PR creation (`gh pr create`), and CI monitoring.
 
 ## 2. register.py
 

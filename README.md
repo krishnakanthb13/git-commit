@@ -5,12 +5,14 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 ## Features
 
 - 🔋 **Zero Dependencies**: Requires only standard Python libraries. No `pip install` required for dependencies.
-- ⚡ **Highly Efficient**: Fetches both summary and description in a single structured JSON API call.
-- 📦 **Semantic Versioning**: Automatically checks git tags, `package.json`, or `pyproject.toml` for the current version and suggests a bumped version (Major/Minor/Patch).
+- ⚡ **Highly Efficient**: Fetches both summary and description in a single structured JSON API call. Smartly optimizes large diffs.
+- 📦 **Semantic Versioning**: Automatically checks git tags, `package.json`, or `pyproject.toml` for the current version and auto-updates those files with the bumped version.
+- 📜 **Changelog & PR Management**: Automatically updates `CHANGELOG.md` and can create GitHub Pull Requests directly using `gh` CLI.
+- 🤖 **Smart Context**: Auto-detects architectural scope from folders (e.g., `ui/`, `db/`), extracts issue numbers from branch names, and respects your local `.git/COMMIT_TEMPLATE`.
 - 🛠️ **Interactive UI**:
-  - Lets you select and stage modified/untracked files if none are staged.
-  - Review, edit, or adjust the proposed message and version bump before committing.
-  - Generates Git tags automatically on release commits.
+  - Stage, unstage (`u`), and review files with detailed commit statistics.
+  - Review, edit, spell-check (`s`), or preview diffs (`d`) before committing.
+  - Monitor CI pipelines live directly after pushing.
 
 ## Code Base
 
@@ -46,12 +48,14 @@ python git_commit.py
 ```
 
 ### Options inside the tool:
-- **Staging**: If no files are staged, you can choose which modified or untracked files to stage.
+- **Staging**: Choose which modified or untracked files to stage (`a`), or unstage specific files (`u`).
 - **Context**: Provide optional notes or hints to steer the AI on what changes to highlight.
 - **Review Screen**:
   - `c`: Execute the commit and tags.
   - `e`: Manually edit the generated commit summary/description.
-  - `v`: Change the version bump category (toggle between `patch`, `minor`, `major`, and `none`).
+  - `v`: Change the version bump category (toggle between `patch`, `minor`, `major`, `custom`, and `none`).
+  - `d`: View the full detailed git diff in your terminal using `less`.
+  - `s`: Run a spelling check on the generated commit message using `aspell`.
   - `x`: Cancel and exit.
 
 ## Windows Right-Click Context Menu Integration
