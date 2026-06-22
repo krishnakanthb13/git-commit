@@ -17,17 +17,31 @@ COLOR_MAGENTA = "\033[95m"
 COLOR_BOLD = "\033[1m"
 COLOR_RESET = "\033[0m"
 
+USE_COLORS = os.getenv("NO_COLOR") is None and sys.stdout.isatty()
+
 def print_success(msg):
-    print(f"{COLOR_GREEN}{COLOR_BOLD}[OK] {msg}{COLOR_RESET}")
+    if USE_COLORS:
+        print(f"{COLOR_GREEN}{COLOR_BOLD}[OK] {msg}{COLOR_RESET}")
+    else:
+        print(f"[OK] {msg}")
 
 def print_info(msg):
-    print(f"{COLOR_CYAN}{COLOR_BOLD}[INFO] {msg}{COLOR_RESET}")
+    if USE_COLORS:
+        print(f"{COLOR_CYAN}{COLOR_BOLD}[INFO] {msg}{COLOR_RESET}")
+    else:
+        print(f"[INFO] {msg}")
 
 def print_warn(msg):
-    print(f"{COLOR_YELLOW}{COLOR_BOLD}[WARN] {msg}{COLOR_RESET}")
+    if USE_COLORS:
+        print(f"{COLOR_YELLOW}{COLOR_BOLD}[WARN] {msg}{COLOR_RESET}")
+    else:
+        print(f"[WARN] {msg}")
 
 def print_error(msg):
-    print(f"{COLOR_RED}{COLOR_BOLD}[ERROR] {msg}{COLOR_RESET}")
+    if USE_COLORS:
+        print(f"{COLOR_RED}{COLOR_BOLD}[ERROR] {msg}{COLOR_RESET}")
+    else:
+        print(f"[ERROR] {msg}")
 
 def load_dotenv():
     """Simple parser to load .env variables without external dependencies."""
@@ -97,6 +111,16 @@ def detect_version():
             pass
 
     return "0.0.0", "default"
+
+def is_valid_semver(version: str) -> bool:
+    """Validate semver string."""
+    pattern = r'^v?(\d+)\.(\d+)\.(\d+)(-[a-zA-Z0-9.]+)?(\+[a-zA-Z0-9.]+)?$'
+    return bool(re.match(pattern, version))
+
+def get_recent_commits(n=3):
+    """Get last N commit messages for context."""
+    log = run_git_cmd(["log", f"-{n}", "--oneline", "--no-decorate"])
+    return log if log else ""
 
 def increment_version(version_str, bump_type):
     """Increment version by bump type (patch, minor, major)."""
@@ -256,7 +280,7 @@ def prompt_stage_files(staged, unstaged, untracked):
 
 def call_gemini_api(api_key, model, prompt_text):
     """Call Gemini API to generate structured commit message."""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     
     # Configure generation config for JSON Schema structured output
     payload = {
@@ -287,7 +311,10 @@ def call_gemini_api(api_key, model, prompt_text):
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "x-goog-api-key": api_key
+        },
         method="POST"
     )
 
@@ -296,9 +323,20 @@ def call_gemini_api(api_key, model, prompt_text):
         try:
             with urllib.request.urlopen(req) as response:
                 res_data = json.loads(response.read().decode("utf-8"))
-                # Extract content from response
+                
+                # Better error recovery
+                if not res_data.get("candidates"):
+                    raise ValueError("Empty response from API or blocked by safety filters.")
+                    
                 text_response = res_data["candidates"][0]["content"]["parts"][0]["text"]
-                return json.loads(text_response)
+                if not text_response:
+                    raise ValueError("Empty text part from API")
+                    
+                parsed_response = json.loads(text_response)
+                if not parsed_response.get("summary"):
+                    raise ValueError("API returned invalid structure (missing summary)")
+                    
+                return parsed_response
         except urllib.error.HTTPError as e:
             err_msg = e.read().decode("utf-8")
             if e.code in [429, 503] and attempt < max_retries:
@@ -356,11 +394,25 @@ def main():
         diff = "(No text diff — changes may include binary files or are otherwise empty.)"
 
     # Truncate diff if extremely large to save tokens/cost
-    if len(diff) > 20000:
-        print_warn("Diff is large. Truncating to fit context window.")
-        diff = diff[:20000] + "\n... [diff truncated for length] ..."
+    MAX_DIFF_SIZE = 20000
+    if len(diff) > MAX_DIFF_SIZE:
+        print_warn("Diff is large. Optimizing to fit context window...")
+        lines = diff.split('\n')
+        optimized_lines = []
+        for line in lines:
+            if line.startswith('diff --git'):
+                optimized_lines.append(line)
+            elif len('\n'.join(optimized_lines)) > MAX_DIFF_SIZE - 1000:
+                break
+            else:
+                optimized_lines.append(line)
+        diff = '\n'.join(optimized_lines)
+        diff += "\n... [diff truncated, showing key changes only] ..."
 
     # 5. Gemini API Call
+    recent_commits = get_recent_commits(3)
+    recent_context = f"\nRecent Commits History:\n{recent_commits}\n" if recent_commits else ""
+
     print_info("Generating commit message via Gemini...")
     prompt_text = f"""
 You are a git commit message generator helper.
@@ -368,7 +420,7 @@ Analyze the following git diff and user provided context, then output a structur
 
 Staged files:
 {", ".join(staged)}
-
+{recent_context}
 User custom context / notes:
 {user_context if user_context else "(None provided)"}
 
@@ -404,6 +456,11 @@ Git Diff:
             clean_proposed = proposed_version.lstrip("vV")
             version_prefix = f"v{clean_proposed}"
             if not display_summary.startswith(version_prefix):
+                # Ensure it fits nicely within 72 chars
+                max_summary_len = 72
+                max_content_len = max_summary_len - len(version_prefix) - 3
+                if len(display_summary) > max_content_len:
+                    display_summary = display_summary[:max_content_len-3] + "..."
                 display_summary = f"{version_prefix} - {display_summary}"
                 
         print(f"\n{COLOR_MAGENTA}================ PROPOSED COMMIT ================{COLOR_RESET}")
@@ -421,15 +478,25 @@ Git Diff:
         print(f"  {COLOR_BOLD}c{COLOR_RESET}) Commit as proposed")
         print(f"  {COLOR_BOLD}e{COLOR_RESET}) Edit summary and description")
         print(f"  {COLOR_BOLD}v{COLOR_RESET}) Change version bump category (patch/minor/major/none)")
+        print(f"  {COLOR_BOLD}d{COLOR_RESET}) View detailed diff")
         print(f"  {COLOR_BOLD}x{COLOR_RESET}) Cancel and exit")
 
-        action = input("\nSelect option [c/e/v/x]: ").strip().lower()
+        action = input("\nSelect option [c/e/v/d/x]: ").strip().lower()
 
         if action == "c":
             break
         elif action == "x":
             print_info("Commit cancelled.")
             sys.exit(0)
+        elif action == "d":
+            try:
+                subprocess.run(["less"], input=diff, text=True)
+            except FileNotFoundError:
+                try:
+                    subprocess.run(["more"], input=diff, text=True)
+                except FileNotFoundError:
+                    print(diff)
+            continue
         elif action == "e":
             new_summary = input(f"New summary [{summary}]: ").strip()
             if new_summary:
@@ -458,6 +525,8 @@ Git Diff:
                 bump_choice = "none"
             elif v_bump == 'c':
                 custom_ver = input("Enter custom version (e.g. 1.2.3): ").strip()
+                if custom_ver and not is_valid_semver(custom_ver):
+                    print_warn("Warning: custom version doesn't follow strict SemVer (X.Y.Z).")
                 bump_choice = f"custom:{custom_ver}" if custom_ver else "patch"
             else:
                 bump_choice = "patch"
@@ -476,6 +545,10 @@ Git Diff:
         clean_final = final_version.lstrip("vV")
         version_prefix = f"v{clean_final}"
         if not summary.startswith(version_prefix):
+            max_summary_len = 72
+            max_content_len = max_summary_len - len(version_prefix) - 3
+            if len(summary) > max_content_len:
+                summary = summary[:max_content_len-3] + "..."
             full_commit_msg = f"{version_prefix} - {summary}"
         else:
             full_commit_msg = summary
