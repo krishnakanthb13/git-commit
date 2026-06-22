@@ -605,7 +605,7 @@ def load_config():
         "default_bump": "patch",
         "max_diff_length": 20000,
         "auto_push": False,
-        "model": "gemini-2.0-flash-lite"
+        "model": "gemini-3.1-flash-lite"
     }
     for path in [".commitgenrc", os.path.expanduser("~/.commitgenrc")]:
         if os.path.exists(path):

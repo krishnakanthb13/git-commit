@@ -5,12 +5,16 @@ This document describes the technical implementation details of the AI Git Commi
 ## File Structure
 
 ```
-c:/Users/ADMIN/OneDrive/Documents/GitHub/git-commit/
-├── git_commit.py          # Core CLI tool logic
-├── register.py            # Windows Registry integration helper
-├── .env.template          # Configuration environment template
-├── .gitignore             # Git ignore configuration
-└── README.md              # Setup and usage guide
+git-commit/
+├── git_commit.py              # Core CLI tool logic (1,109 lines)
+├── register.py                # Windows Registry integration helper
+├── .env.template              # Configuration environment template
+├── .env                       # Local configuration (contains API key, gitignored)
+├── .gitignore                 # Git ignore configuration
+├── git.ico                    # Windows icon for context menu
+├── README.md                  # Setup and usage guide
+├── CODE_DOCUMENTATION.md      # Technical implementation details
+└── DESIGN_PHILOSOPHY.md       # Architecture decisions
 ```
 
 ## 1. git_commit.py
@@ -20,21 +24,25 @@ This script implements the main execution loop. It is designed to be fully self-
 ### Main Functions
 
 **Core helpers**
+- `print_success(msg)`, `print_info(msg)`, `print_warn(msg)`, `print_error(msg)`: Colored output helpers with NO_COLOR support.
 - `load_dotenv()`: Parses `.env` file without external dependencies.
-- `run_git_cmd(args)`: Subprocess wrapper for git commands; returns stdout or `None`.
+- `run_git_cmd(args, strip=True)`: Subprocess wrapper for git commands; returns stdout or `None`.
 - `detect_version()`: Priority order — git tags → `package.json` → `pyproject.toml` → `0.0.0`.
-- `increment_version(version_str, bump_type)`: Semver bump; also handles `custom:x.y.z` passthrough.
-- `update_version_in_files(new_version)`: Edits version field in `package.json` and `pyproject.toml`.
-- `update_changelog(version, summary, description)`: Inserts a new section into `CHANGELOG.md` if it exists.
+- `validate_commit_message(message)`: Validates commit format (72 char limit, conventional format, blank line).
 - `get_branch_version_info()`: Returns sanitized branch name if not on `main`/`master`/`HEAD`.
-- `is_valid_semver(version)`: Regex validator for `vX.Y.Z(-pre)(+build)` format.
-- `get_recent_commits(n)`: Returns last N commit lines as context for the AI prompt.
+- `is_valid_semver(version: str) -> bool`: Regex validator for `vX.Y.Z(-pre)(+build)` format.
+- `get_recent_commits(n=3)`: Returns last N commit lines as context for the AI prompt.
 - `load_commit_template()`: Loads `.git/COMMIT_TEMPLATE` or `.github/PULL_REQUEST_TEMPLATE.md`.
 - `extract_issue_references()`: Finds `#NNN` patterns in branch name and last 5 commits.
+- `update_changelog(version, summary, description)`: Inserts a new section into `CHANGELOG.md` if it exists.
+
+**Version management**
+- `increment_version(version_str, bump_type)`: Semver bump; also handles `custom:x.y.z` passthrough.
+- `update_version_in_files(new_version)`: Edits version field in `package.json` and `pyproject.toml`.
 
 **File & staging**
 - `get_git_files()`: Parses `git status --porcelain -z` (null-terminated) into staged/unstaged/untracked lists.
-- `prompt_stage_files(...)`: Interactive picker with stage (`a`, numbers), unstage (`u`), and quit (`q`) options.
+- `prompt_stage_files(staged, unstaged, untracked)`: Interactive picker with stage (`a`, numbers), unstage (`u`), and quit (`q`) options.
 - `show_commit_stats(staged)`: Prints `git diff --stat` and a per-extension file count.
 - `is_binary_file(filepath)`: Reads first 1 KB for null bytes to identify binary files.
 
@@ -45,7 +53,7 @@ This script implements the main execution loop. It is designed to be fully self-
 
 **Configuration & environment**
 - `load_config()`: Reads `.commitgenrc` (repo) or `~/.commitgenrc` (global) JSON for default settings.
-- `check_dependencies()`: Validates `git` is on PATH; warns if `gh` is missing.
+- `check_dependencies()`: Validates Python 3.6+, `git` is on PATH; warns if `gh` is missing.
 - `is_ci_environment()`: Returns `True` if any CI env var (`CI`, `GITHUB_ACTIONS`, etc.) is set.
 
 **Session recovery**
@@ -59,6 +67,28 @@ This script implements the main execution loop. It is designed to be fully self-
 
 **API**
 - `call_gemini_api(api_key, model, prompt_text)`: POST to Gemini REST API with JSON schema enforcement and exponential-backoff retries (max 3).
+
+### Configuration Details
+
+**Default Configuration:**
+```python
+{
+    "default_bump": "patch",
+    "max_diff_length": 20000,
+    "auto_push": False,
+    "model": "gemini-3.1-flash-lite"
+}
+```
+
+**Configuration File Search Order:**
+1. `.commitgenrc` (current repository)
+2. `~/.commitgenrc` (user home directory)
+3. Built-in defaults
+
+**Environment Variables:**
+- `GEMINI_API_KEY`: Gemini API key (required)
+- `GEMINI_MODEL`: Model name (optional, overrides config)
+- `NO_COLOR`: Disable colored output (optional)
 
 **Entrypoint**
 - `main()`: Full orchestration — dependency check → flag parsing (`--dry-run`, `--non-interactive`) → session recovery → staging → version detection → pre-commit hooks → AI call → interactive review → commit/tag → push → PR → CI monitor → session clear.

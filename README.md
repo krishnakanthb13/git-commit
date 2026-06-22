@@ -8,34 +8,40 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 
 1. 🔍 **Analyzes changes** with Git diff
 2. 🤖 **Generates commit messages** using Google's Gemini AI
-3. 📝 **Follows conventional commits** format
-4. 🏷️ **Manages version bumping** (patch/minor/major)
+3. 📝 **Follows conventional commits** format (auto-detected from repo history)
+4. 🏷️ **Manages version bumping** (patch/minor/major/custom/none)
 5. 📦 **Updates project files** (package.json, pyproject.toml)
 6. 📋 **Maintains changelogs** (CHANGELOG.md)
 7. ✅ **Runs pre-commit hooks** before committing
-8. 🔍 **Detects binary files** and scopes
+8. 🔍 **Detects binary files** and scopes from file paths
 9. 🔗 **Links issues** from branches/commits
 10. 💾 **Saves session state** for crash recovery
 11. 🚀 **Pushes to remote** with tags
 12. 🔧 **Creates Pull Requests** via GitHub CLI
 13. 👀 **Monitors CI pipelines** after push
 14. 🎨 **Beautiful CLI interface** with colors
-15. ⚙️ **Configuration file** support
+15. ⚙️ **Configuration file** support (.commitgenrc)
 16. 🏃 **CI/CD ready** with non-interactive mode
 17. 🧪 **Dry run mode** for testing
+18. 🔍 **Validates commit messages** against conventional commit format
+19. 📊 **Shows commit statistics** with per-extension file counts
+20. 🔤 **Spell checking** integration (via aspell)
 
-**This is genuinely one of the most comprehensive Git commit tools I've seen.** It handles the entire workflow from staging to CI monitoring with excellent error handling and user experience.
+**A comprehensive Git commit tool** that handles the entire workflow from staging to CI monitoring with excellent error handling and user experience.
 
 ## Features
 
-- 🔋 **Zero Dependencies**: Requires only standard Python libraries. No `pip install` required.
-- ⚡ **Highly Efficient**: Single structured JSON API call. Smartly optimizes and truncates large diffs.
+- 🔋 **Zero Dependencies**: Requires only standard Python 3 libraries. No `pip install` required.
+- ⚡ **Highly Efficient**: Single structured JSON API call. Smartly optimizes and truncates large diffs while preserving file headers.
 - 📦 **Semantic Versioning**: Auto-detects version from git tags, `package.json`, or `pyproject.toml` and updates those files on commit.
 - 📜 **Changelog & PR Management**: Automatically updates `CHANGELOG.md` and can create GitHub Pull Requests using `gh` CLI.
 - 🤖 **Smart Context**: Detects architectural scope from file paths, extracts issue numbers from branch names, respects `.git/COMMIT_TEMPLATE`, and learns from your repo's commit history.
 - 🔒 **Robustness**: Binary file detection, pre-commit hook integration, session recovery (crash-safe), and startup dependency checks.
-- ⚙️ **Configurable**: Per-repo `.commitgenrc` JSON config for default bump type, diff size, and model.
-- 🚀 **CI/CD Ready**: `--dry-run` and `--non-interactive` flags for headless/automated environments.
+- ⚙️ **Configurable**: Per-repo `.commitgenrc` JSON config for default bump type, diff size, and model. Global config via `~/.commitgenrc`.
+- 🚀 **CI/CD Ready**: `--dry-run` and `--non-interactive` flags for headless/automated environments. Auto-detects CI environments.
+- 🔍 **Commit Validation**: Validates commit messages against conventional commit format (72 char limit, proper format, blank line after title).
+- 📊 **Commit Statistics**: Shows detailed stats with per-extension file counts before committing.
+- 🔤 **Spell Checking**: Optional spell-check via system `aspell` command.
 - 🛠️ **Interactive UI**:
   - Stage, unstage (`u`), and review files with detailed commit statistics.
   - Review, edit, spell-check (`s`), or preview diffs (`d`) before committing.
@@ -45,13 +51,15 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 
 ```
 git-commit/
-├── git_commit.py          ← main tool
-├── register.py            ← install/uninstall context menu (winreg)
-├── .env.template          ← copy to .env and add your API key
-├── .gitignore             ← ignores .env and Python cache
-├── README.md
-├── CODE_DOCUMENTATION.md
-└── DESIGN_PHILOSOPHY.md
+├── git_commit.py              ← main tool (1,109 lines)
+├── register.py                ← install/uninstall context menu (winreg)
+├── .env.template              ← copy to .env and add your API key
+├── .env                       ← local configuration (contains API key, gitignored)
+├── .gitignore                 ← ignores .env and Python cache
+├── git.ico                    ← Windows icon for context menu
+├── README.md                  ← setup and usage guide
+├── CODE_DOCUMENTATION.md      ← technical implementation details
+└── DESIGN_PHILOSOPHY.md       ← architecture decisions
 ```
 
 ## Setup
@@ -63,7 +71,7 @@ git-commit/
 2. Open `.env` and configure your `GEMINI_API_KEY`:
    ```env
    GEMINI_API_KEY=your_gemini_api_key_here
-   GEMINI_MODEL=gemini-2.0-flash-lite
+   GEMINI_MODEL=gemini-3.1-flash-lite
    ```
 
 ## Usage
@@ -80,7 +88,7 @@ python git_commit.py --non-interactive  # headless/CI mode (no prompts)
 - **Review Screen**:
   - `c`: Execute the commit and tags.
   - `e`: Manually edit the generated summary/description.
-  - `v`: Change version bump (`patch`, `minor`, `major`, `custom`, `none`).
+  - `v`: Change version bump (`patch`, `minor`, `major`, `custom:X.Y.Z`, `none`).
   - `d`: View the full git diff in `less`.
   - `s`: Run a spell-check via `aspell`.
   - `x`: Cancel and exit.
@@ -90,11 +98,17 @@ Create a `.commitgenrc` JSON file in your repo (or `~/.commitgenrc` globally) to
 ```json
 {
   "default_bump": "minor",
-  "max_diff_length": 15000,
+  "max_diff_length": 20000,
   "auto_push": false,
   "model": "gemini-2.0-flash-lite"
 }
 ```
+
+**Configuration priority** (highest to lowest):
+1. Environment variables (e.g., `GEMINI_MODEL`)
+2. `.commitgenrc` (repo-local)
+3. `~/.commitgenrc` (global user config)
+4. Built-in defaults
 
 ## Windows Right-Click Context Menu Integration
 
