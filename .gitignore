@@ -1,0 +1,10 @@
+# Local environment variables (contains private api keys)
+.env
+
+
+# Python cache and byte-compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
