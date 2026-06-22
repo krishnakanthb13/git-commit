@@ -204,18 +204,24 @@ def get_git_files():
 
     return staged, unstaged, untracked
 
-def prompt_stage_files(unstaged, untracked):
-    """Interactively let user stage files if nothing is staged."""
-    all_available = [(f, "modified") for f in unstaged] + [(f, "untracked") for f in untracked]
+def prompt_stage_files(staged, unstaged, untracked):
+    """Always show full file picker so user can review/add files before committing."""
+    all_available = (
+        [(f, "staged")    for f in staged] +
+        [(f, "modified")  for f in unstaged] +
+        [(f, "untracked") for f in untracked]
+    )
     if not all_available:
         return False
 
-    print_info("No files currently staged. Select files to stage/commit:")
+    print_info("Select files to stage/commit:")
     for idx, (f, status) in enumerate(all_available, 1):
-        print(f"  {COLOR_BOLD}{idx}{COLOR_RESET}) [{status}] {f}")
+        color = COLOR_GREEN if status == "staged" else ""
+        print(f"  {COLOR_BOLD}{idx}{COLOR_RESET}) [{color}{status}{COLOR_RESET}] {f}")
     
     print(f"  {COLOR_BOLD}a{COLOR_RESET}) Stage all files")
     print(f"  {COLOR_BOLD}q{COLOR_RESET}) Quit")
+    print(f"\n  {COLOR_CYAN}(Already-staged files shown in green — select additional ones to add){COLOR_RESET}")
 
     choice = input("\nEnter choice(s) (comma-separated numbers, 'a', or 'q'): ").strip().lower()
     if choice == 'q':
@@ -318,17 +324,16 @@ def main():
 
     model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-lite")
 
-    # 1. Git Status & Interactive Staging
+    # 1. Git Status & Interactive Staging (always show picker)
     staged, unstaged, untracked = get_git_files()
-    if not staged:
-        if not unstaged and not untracked:
-            print_success("Nothing to commit, working tree clean.")
-            sys.exit(0)
-        
-        staged_any = prompt_stage_files(unstaged, untracked)
-        if not staged_any:
-            sys.exit(0)
-        staged, _, _ = get_git_files()
+    if not staged and not unstaged and not untracked:
+        print_success("Nothing to commit, working tree clean.")
+        sys.exit(0)
+
+    staged_any = prompt_stage_files(staged, unstaged, untracked)
+    if not staged_any:
+        sys.exit(0)
+    staged, _, _ = get_git_files()
 
     if not staged:
         print_error("No files staged for commit.")
@@ -495,6 +500,22 @@ Git Diff:
             
             subprocess.run(["git", "tag", "-a", tag_name, "-m", f"Release {tag_name}"], check=True)
             print_success(f"Git tag created: {tag_name}")
+
+        # Ask to push
+        push_choice = input(f"\n{COLOR_CYAN}{COLOR_BOLD}Push to remote? (y/n) [n]:{COLOR_RESET} ").strip().lower()
+        if push_choice == "y":
+            print_info("Pushing to remote...")
+            push_args = ["git", "push"]
+            try:
+                subprocess.run(push_args, check=True)
+                if final_version:
+                    subprocess.run(["git", "push", "origin", tag_name], check=True)
+                    print_success(f"Tag '{tag_name}' pushed to remote.")
+                print_success("Push complete!")
+            except subprocess.CalledProcessError as e:
+                print_error(f"Push failed: {e}")
+        else:
+            print_info("Skipped push. Run 'git push' manually when ready.")
             
     except subprocess.CalledProcessError as e:
         print_error(f"Failed to complete Git actions: {e}")
