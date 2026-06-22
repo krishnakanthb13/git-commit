@@ -402,9 +402,9 @@ Git Diff:
         display_summary = summary
         if proposed_version:
             clean_proposed = proposed_version.lstrip("vV")
-            version_prefix = f"v{clean_proposed}+ "
+            version_prefix = f"v{clean_proposed}"
             if not display_summary.startswith(version_prefix):
-                display_summary = f"{version_prefix}- {display_summary}"
+                display_summary = f"{version_prefix} - {display_summary}"
                 
         print(f"\n{COLOR_MAGENTA}================ PROPOSED COMMIT ================{COLOR_RESET}")
         print(f"{COLOR_BOLD}Files to commit:{COLOR_RESET}")
@@ -474,9 +474,9 @@ Git Diff:
     # Assemble final commit message
     if final_version:
         clean_final = final_version.lstrip("vV")
-        version_prefix = f"v{clean_final}+ "
+        version_prefix = f"v{clean_final}"
         if not summary.startswith(version_prefix):
-            full_commit_msg = f"{version_prefix}- {summary}"
+            full_commit_msg = f"{version_prefix} - {summary}"
         else:
             full_commit_msg = summary
     else:
