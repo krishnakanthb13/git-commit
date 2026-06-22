@@ -44,7 +44,7 @@ def load_dotenv():
                     val = val.strip().strip('"').strip("'")
                     os.environ[key.strip()] = val
 
-def run_git_cmd(args):
+def run_git_cmd(args, strip=True):
     """Run a git command and return its stdout, or None on failure."""
     try:
         res = subprocess.run(
@@ -55,7 +55,7 @@ def run_git_cmd(args):
             errors="replace",  # never crash on binary / non-UTF-8 bytes
             check=True
         )
-        return res.stdout.strip()
+        return res.stdout.strip() if strip else res.stdout
     except subprocess.CalledProcessError:
         return None
 
@@ -163,29 +163,44 @@ def update_version_in_files(new_version):
             print_warn(f"Failed to update pyproject.toml: {e}")
 
 def get_git_files():
-    """Get staged, unstaged, and untracked files."""
+    """Get staged, unstaged, and untracked files using null-terminated porcelain output."""
     staged = []
     unstaged = []
     untracked = []
 
-    status_out = run_git_cmd(["status", "--porcelain"])
+    status_out = run_git_cmd(["status", "--porcelain", "-z"], strip=False)
     if not status_out:
         return staged, unstaged, untracked
 
-    for line in status_out.split("\n"):
-        if not line:
+    entries = status_out.split("\0")
+    i = 0
+    while i < len(entries):
+        entry = entries[i]
+        if not entry:
+            i += 1
             continue
-        xy = line[:2]
-        filename = line[3:]
+        
+        if len(entry) < 3:
+            i += 1
+            continue
+            
+        xy = entry[:2]
+        filename = entry[3:]
 
         # Staged status in X slot
         if xy[0] in ["M", "A", "D", "R"]:
             staged.append(filename)
         # Unstaged status in Y slot (or untracked)
-        if xy[1] == "M":
+        if xy[1] in ["M", "A", "D"]:
             unstaged.append(filename)
         elif xy == "??":
             untracked.append(filename)
+
+        # For renames (R) or copies (C), the old path takes up the next NUL-separated entry
+        if xy[0] in ["R", "C"]:
+            i += 1
+            
+        i += 1
 
     return staged, unstaged, untracked
 
@@ -369,6 +384,12 @@ Git Diff:
 
     # 6. Interactive Review Loop
     bump_choice = "patch"  # default bump
+    
+    # Try to extract version from user context
+    ver_match = re.search(r'\b(v?\d+\.\d+\.\d+(?:-[a-zA-Z0-9\.]+)?)\b', user_context)
+    if ver_match:
+        bump_choice = f"custom:{ver_match.group(1)}"
+        print_info(f"Auto-detected version from context: {ver_match.group(1)}")
     
     while True:
         proposed_version = increment_version(curr_version, bump_choice) if bump_choice != "none" else curr_version
