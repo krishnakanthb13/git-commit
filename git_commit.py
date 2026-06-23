@@ -46,18 +46,26 @@ def print_error(msg):
 
 def load_dotenv():
     """Simple parser to load .env variables without external dependencies."""
-    env_file = ".env"
-    if os.path.exists(env_file):
-        with open(env_file, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                if "=" in line:
-                    key, val = line.split("=", 1)
-                    # Strip quotes if present
-                    val = val.strip().strip('"').strip("'")
-                    os.environ[key.strip()] = val
+    def load_from_path(env_path):
+        if os.path.exists(env_path):
+            with open(env_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" in line:
+                        key, val = line.split("=", 1)
+                        # Strip quotes if present
+                        val = val.strip().strip('"').strip("'")
+                        os.environ[key.strip()] = val
+
+    # Load from the directory where the script is located
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    load_from_path(os.path.join(script_dir, ".env"))
+
+    # Load from the current working directory (so cwd can override script dir if they differ)
+    if os.path.abspath(os.getcwd()) != os.path.abspath(script_dir):
+        load_from_path(".env")
 
 def run_git_cmd(args, strip=True):
     """Run a git command and return its stdout, or None on failure."""

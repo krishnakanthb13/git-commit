@@ -88,7 +88,7 @@ git-commit/
 
 ## Setup
 
-1. Copy `.env.template` to `.env`:
+1. Copy `.env.template` to `.env` in the same directory as `git_commit.py`:
    ```bash
    copy .env.template .env
    ```
@@ -97,6 +97,8 @@ git-commit/
    GEMINI_API_KEY=your_gemini_api_key_here
    GEMINI_MODEL=gemini-3.1-flash-lite  # (optional, this is the default)
    ```
+
+*Note: The script automatically resolves and loads the `.env` file from the directory where `git_commit.py` is installed/located, so you can execute the command from any folder. If a `.env` file is also present in the current working directory, it will load that as well to allow project-specific overrides.*
 
 ## Usage
 

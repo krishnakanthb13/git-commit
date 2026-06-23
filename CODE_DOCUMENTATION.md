@@ -25,7 +25,7 @@ This script implements the main execution loop. It is designed to be fully self-
 
 **Core helpers**
 - `print_success(msg)`, `print_info(msg)`, `print_warn(msg)`, `print_error(msg)`: Colored output helpers with NO_COLOR support.
-- `load_dotenv()`: Parses `.env` file without external dependencies.
+- `load_dotenv()`: Parses `.env` file without external dependencies. It looks in the directory where the script (`git_commit.py`) is located first, and then in the current working directory.
 - `run_git_cmd(args, strip=True)`: Subprocess wrapper for git commands; returns stdout or `None`.
 - `detect_version()`: Priority order — git tags → `package.json` → `pyproject.toml` → `0.0.0`.
 - `validate_commit_message(message)`: Validates commit format (72 char limit, conventional format, blank line). Returns list of issues.
