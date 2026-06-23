@@ -153,6 +153,10 @@ def get_recent_commits(n=3):
     log = run_git_cmd(["log", f"-{n}", "--oneline", "--no-decorate"])
     return log if log else ""
 
+def get_last_commit_message():
+    """Get the full message of the last commit."""
+    return run_git_cmd(["log", "-1", "--format=%B"])
+
 def load_commit_template():
     """Load commit template if exists."""
     template_path = os.path.join('.git', 'COMMIT_TEMPLATE')
@@ -318,6 +322,21 @@ def get_git_files():
         i += 1
 
     return staged, unstaged, untracked
+
+def prompt_amend_or_new():
+    """Ask user whether to amend last commit or create new one."""
+    print(f"\n{COLOR_MAGENTA}{COLOR_BOLD}Commit Mode:{COLOR_RESET}")
+    print(f"  {COLOR_BOLD}n{COLOR_RESET}) Create a NEW commit")
+    print(f"  {COLOR_BOLD}a{COLOR_RESET}) AMEND the last commit (updates message and adds staged changes)")
+    print(f"  {COLOR_BOLD}f{COLOR_RESET}) FRESH amend (replace last commit message completely with new AI suggestion)")
+    
+    choice = input(f"\n{COLOR_CYAN}Select mode [n/a/f]:{COLOR_RESET} ").strip().lower()
+    if choice == 'a':
+        return 'amend'
+    elif choice == 'f':
+        return 'fresh_amend'
+    else:
+        return 'new'
 
 def prompt_stage_files(staged, unstaged, untracked):
     """Always show full file picker so user can review/add files before committing."""
@@ -547,7 +566,7 @@ def check_spelling(text):
         )
         misspelled = [w for w in process.stdout.strip().split('\n') if w]
         return misspelled
-    except:
+    except Exception:
         return []
 
 def show_commit_stats(staged):
@@ -734,6 +753,7 @@ def main():
             bump_choice = saved_state.get('bump_choice', config["default_bump"])
             staged = saved_state.get('staged', [])
             curr_version = saved_state.get('curr_version', '0.0.0')
+            commit_mode = saved_state.get('commit_mode', 'new')
             user_context = ""  # not available in resumed session
             diff = "(Diff not available — resumed from saved session)"
             print_info(f"Resumed. Staged: {staged}")
@@ -772,9 +792,27 @@ def main():
 
         show_commit_stats(staged)
 
-        # 2. Detect & Display Version Info
-        curr_version, ver_source = detect_version()
-        print_info(f"Detected current version: {curr_version} (from {ver_source})")
+        # 2. Commit Mode Selection (NEW: Amend option)
+        if NON_INTERACTIVE:
+            commit_mode = 'new'
+        else:
+            # Check if there's a previous commit to amend
+            last_commit = run_git_cmd(["log", "-1", "--oneline"])
+            if last_commit:
+                commit_mode = prompt_amend_or_new()
+            else:
+                commit_mode = 'new'
+                print_info("No previous commit found — creating new commit.")
+
+        # 3. Detect & Display Version Info
+        if commit_mode == 'new':
+            curr_version, ver_source = detect_version()
+            print_info(f"Detected current version: {curr_version} (from {ver_source})")
+        else:
+            # For amend, get current version from last tag or files
+            curr_version, ver_source = detect_version()
+            print_info(f"Current version for reference: {curr_version} (from {ver_source})")
+            print_info(f"Mode: {'Amending last commit (will add staged changes)' if commit_mode == 'amend' else 'Fresh amend (will replace last commit message)'}")
 
         branch_info = get_branch_version_info()
         if branch_info:
@@ -784,22 +822,32 @@ def main():
         if detect_conventional_commits_usage():
             print_info("Repo uses conventional commits — AI will follow that format.")
 
-        # Pre-commit hooks
-        if not check_precommit_hooks():
-            print_info("Commit cancelled due to hook failures.")
-            sys.exit(1)
+        # Pre-commit hooks (skip for amend mode if no new files staged beyond what was already committed)
+        if commit_mode == 'new' or staged:
+            if not check_precommit_hooks():
+                print_info("Commit cancelled due to hook failures.")
+                sys.exit(1)
 
-        # 3. User Input Context
+        # 4. User Input Context
         if NON_INTERACTIVE:
             user_context = ""
         else:
             user_context = input(f"\n{COLOR_CYAN}{COLOR_BOLD}Optional - Enter context/notes for the commit (press Enter to skip):{COLOR_RESET} ").strip()
 
-        # 4. Git Diff (exclude binary files — they produce unreadable noise for the LLM)
-        diff = run_git_cmd(["diff", "--cached", "--diff-filter=ACMRT"])
-        if not diff:
-            print_warn("No text diff available (binary-only or empty diff). Proceeding with file list only.")
-            diff = "(No text diff — changes may include binary files or are otherwise empty.)"
+        # 5. Git Diff
+        if commit_mode == 'amend':
+            # For amend, get diff of staged changes against last commit
+            diff = run_git_cmd(["diff", "--cached", "--diff-filter=ACMRT"])
+            if not diff and not staged:
+                print_warn("No new changes staged for amend. Amending message only.")
+                diff = "(No new changes — amending commit message only)"
+            elif not diff:
+                diff = "(No text diff — changes may include binary files or are otherwise empty.)"
+        else:
+            diff = run_git_cmd(["diff", "--cached", "--diff-filter=ACMRT"])
+            if not diff:
+                print_warn("No text diff available (binary-only or empty diff). Proceeding with file list only.")
+                diff = "(No text diff — changes may include binary files or are otherwise empty.)"
 
         # Truncate diff if extremely large to save tokens/cost
         if len(diff) > MAX_DIFF_SIZE:
@@ -817,28 +865,70 @@ def main():
             diff += "\n... [diff truncated, showing key changes only] ..."
 
     if not saved_state or not saved_state.get('summary'):
-        # 5. Gemini API Call
-        recent_commits = get_recent_commits(3)
-        recent_context = f"\nRecent Commits History:\n{recent_commits}\n" if recent_commits else ""
+        # 6. Commit Message Generation
+        if commit_mode == 'amend':
+            # For amend mode, preserve existing message and allow user to edit/add
+            last_msg = get_last_commit_message()
+            if last_msg:
+                lines = last_msg.split('\n')
+                summary = lines[0].strip()
+                # If there's a description (separated by empty line(s)), preserve it
+                description_lines = []
+                found_empty = False
+                for line in lines[1:]:
+                    if not line.strip() and not found_empty:
+                        found_empty = True
+                        continue
+                    if found_empty or line.strip():
+                        description_lines.append(line)
+                description = '\n'.join(description_lines).strip()
+                
+                print_info("Using existing commit message as base. You'll be able to edit it.")
+                print_info(f"Current summary: {summary}")
+                if description:
+                    print_info(f"Current description: {description[:100]}...")
+            else:
+                summary = "update: code modifications"
+                description = ""
+        else:
+            # For new commits and fresh_amend, generate via AI
+            recent_commits = get_recent_commits(3)
+            recent_context = f"\nRecent Commits History:\n{recent_commits}\n" if recent_commits else ""
 
-        template = load_commit_template()
-        template_context = f"\nProject Commit Template/Guidelines:\n{template}\nPlease follow these guidelines.\n" if template else ""
+            template = load_commit_template()
+            template_context = f"\nProject Commit Template/Guidelines:\n{template}\nPlease follow these guidelines.\n" if template else ""
 
-        issues = extract_issue_references()
-        issues_context = f"\nRelated Issues: {', '.join(['#' + i for i in issues])}\n(Please include these issue numbers if relevant)\n" if issues else ""
-        
-        scope = detect_conventional_scope(staged)
-        scope_context = f"\nDetected scope: {', '.join(scope)}\n" if scope else ""
+            issues = extract_issue_references()
+            issues_context = f"\nRelated Issues: {', '.join(['#' + i for i in issues])}\n(Please include these issue numbers if relevant)\n" if issues else ""
+            
+            scope = detect_conventional_scope(staged)
+            scope_context = f"\nDetected scope: {', '.join(scope)}\n" if scope else ""
 
-        print_info("Generating commit message via Gemini...")
-        prompt_text = f"""
+            # Prepare amend-specific context for fresh_amend
+            if commit_mode == 'fresh_amend':
+                last_msg = get_last_commit_message()
+                if last_msg:
+                    amend_context = f"""
+Current Last Commit Message (for reference only - DO NOT reuse any part):
+{last_msg}
+
+IMPORTANT: Generate a COMPLETELY NEW commit message that encompasses ALL changes (both old and new).
+Do NOT reference, copy, or preserve any part of the old message.
+"""
+                else:
+                    amend_context = ""
+            else:
+                amend_context = ""
+
+            print_info("Generating commit message via Gemini...")
+            prompt_text = f"""
 You are a git commit message generator helper.
 Analyze the following git diff and user provided context, then output a structured commit summary and description.
 Use conventional commit format if possible (feat:, fix:, docs:, style:, refactor:, test:, chore:, etc.).
 
 Staged files:
 {", ".join(staged)}
-{recent_context}{template_context}{scope_context}{issues_context}
+{recent_context}{template_context}{scope_context}{issues_context}{amend_context}
 User custom context / notes:
 {user_context if user_context else "(None provided)"}
 
@@ -847,14 +937,24 @@ Git Diff:
 {diff}
 ```
 """
-        try:
-            ai_res = call_gemini_api(api_key, model, prompt_text)
-            summary = ai_res.get("summary", "").strip()
-            description = ai_res.get("description", "").strip()
-        except Exception as e:
-            print_error(f"Failed to generate commit message: {e}")
-            summary = "update: code modifications"
-            description = "- Minor changes/updates"
+            try:
+                ai_res = call_gemini_api(api_key, model, prompt_text)
+                summary = ai_res.get("summary", "").strip()
+                description = ai_res.get("description", "").strip()
+            except Exception as e:
+                print_error(f"Failed to generate commit message: {e}")
+                if commit_mode == 'fresh_amend':
+                    last_msg = get_last_commit_message()
+                    if last_msg:
+                        lines = last_msg.split('\n')
+                        summary = lines[0] if lines else "update: code modifications"
+                        description = '\n'.join(lines[1:]) if len(lines) > 1 else "- Minor changes/updates"
+                    else:
+                        summary = "update: code modifications"
+                        description = "- Minor changes/updates"
+                else:
+                    summary = "update: code modifications"
+                    description = "- Minor changes/updates"
 
         # Save session state in case of crash
         save_session_state({
@@ -862,17 +962,19 @@ Git Diff:
             'description': description,
             'bump_choice': config["default_bump"],
             'staged': staged,
-            'curr_version': curr_version
+            'curr_version': curr_version,
+            'commit_mode': commit_mode
         })
     else:
         # Resumed from saved session
         summary = saved_state.get('summary', 'update: code modifications')
         description = saved_state.get('description', '')
         bump_choice = saved_state.get('bump_choice', config["default_bump"])
-        staged = saved_state.get('staged', staged)
-        curr_version = saved_state.get('curr_version', curr_version)
+        staged = saved_state.get('staged', [])
+        curr_version = saved_state.get('curr_version', '0.0.0')
+        commit_mode = saved_state.get('commit_mode', 'new')
 
-    # 6. Interactive Review Loop
+    # 7. Interactive Review Loop
     bump_choice = config.get("default_bump", "patch") if not saved_state else saved_state.get('bump_choice', 'patch')
 
     # Guard: ensure user_context and diff are always defined (resume path may skip them)
@@ -888,25 +990,36 @@ Git Diff:
         print_info(f"Auto-detected version from context: {ver_match.group(1)}")
     
     while True:
-        proposed_version = increment_version(curr_version, bump_choice) if bump_choice != "none" else curr_version
+        if commit_mode == 'new':
+            proposed_version = increment_version(curr_version, bump_choice) if bump_choice != "none" else curr_version
+        else:
+            # For amend mode, use current version
+            proposed_version = curr_version
+            bump_choice = "none"
         
         display_summary = summary
+        # Add version prefix for ALL modes (but prevent duplication)
         if proposed_version:
             clean_proposed = proposed_version.lstrip("vV")
-            version_prefix = f"v{clean_proposed}"
+            version_prefix = f"v{clean_proposed} - "
+            
+            # Check if version prefix already exists (avoid duplication)
             if not display_summary.startswith(version_prefix):
-                # Ensure it fits nicely within 72 chars
                 max_summary_len = 72
-                max_content_len = max_summary_len - len(version_prefix) - 3
+                max_content_len = max_summary_len - len(version_prefix)
                 if len(display_summary) > max_content_len:
                     display_summary = display_summary[:max_content_len-3] + "..."
-                display_summary = f"{version_prefix} - {display_summary}"
+                display_summary = f"{version_prefix}{display_summary}"
                 
         print(f"\n{COLOR_MAGENTA}================ PROPOSED COMMIT ================{COLOR_RESET}")
+        print(f"{COLOR_BOLD}Mode:{COLOR_RESET} {'AMEND' if commit_mode in ['amend', 'fresh_amend'] else 'NEW COMMIT'}")
         print(f"{COLOR_BOLD}Files to commit:{COLOR_RESET}")
         for f in staged:
             print(f"  {f}")
-        print(f"\n{COLOR_BOLD}Version Bump:{COLOR_RESET} {curr_version} -> {proposed_version} ({bump_choice})")
+        if commit_mode == 'new':
+            print(f"\n{COLOR_BOLD}Version Bump:{COLOR_RESET} {curr_version} -> {proposed_version} ({bump_choice})")
+        else:
+            print(f"\n{COLOR_BOLD}Version:{COLOR_RESET} {curr_version} (amend mode - version unchanged)")
         print(f"\n{COLOR_BOLD}Commit Message:{COLOR_RESET}")
         print(f"  {COLOR_GREEN}{display_summary}{COLOR_RESET}")
         if description:
@@ -922,17 +1035,19 @@ Git Diff:
         print(f"\nOptions:")
         print(f"  {COLOR_BOLD}c{COLOR_RESET}) Commit as proposed")
         print(f"  {COLOR_BOLD}e{COLOR_RESET}) Edit summary and description")
-        print(f"  {COLOR_BOLD}v{COLOR_RESET}) Change version bump category (patch/minor/major/none)")
+        if commit_mode == 'new':
+            print(f"  {COLOR_BOLD}v{COLOR_RESET}) Change version bump category (patch/minor/major/none)")
         print(f"  {COLOR_BOLD}d{COLOR_RESET}) View detailed diff")
         print(f"  {COLOR_BOLD}s{COLOR_RESET}) Spell check commit message")
         print(f"  {COLOR_BOLD}x{COLOR_RESET}) Cancel and exit")
 
-        action = input("\nSelect option [c/e/v/d/s/x]: ").strip().lower()
+        action = input(f"\nSelect option [c/e/{'v/' if commit_mode == 'new' else ''}d/s/x]: ").strip().lower()
 
         if action == "c":
             break
         elif action == "x":
             print_info("Commit cancelled.")
+            clear_session_state()
             sys.exit(0)
         elif action == "d":
             try:
@@ -971,7 +1086,7 @@ Git Diff:
             
             if desc_lines:
                 description = "\n".join(desc_lines)
-        elif action == "v":
+        elif action == "v" and commit_mode == 'new':
             v_bump = input("Select bump category (p=patch, m=minor, j=major, n=none, c=custom) [p]: ").strip().lower()
             if v_bump == 'm':
                 bump_choice = "minor"
@@ -989,21 +1104,25 @@ Git Diff:
         else:
             print_warn("Invalid option selection.")
 
-    # 7. Assemble final commit message
-    if bump_choice != "none":
+    # 8. Assemble final commit message
+    if commit_mode == 'new' and bump_choice != "none":
         final_version = increment_version(curr_version, bump_choice)
+    elif commit_mode in ['amend', 'fresh_amend']:
+        final_version = curr_version
     else:
         final_version = None
 
     if final_version:
         clean_final = final_version.lstrip("vV")
-        version_prefix = f"v{clean_final}"
+        version_prefix = f"v{clean_final} - "
+        
+        # Only add version prefix if not already present
         if not summary.startswith(version_prefix):
             max_summary_len = 72
-            max_content_len = max_summary_len - len(version_prefix) - 3
+            max_content_len = max_summary_len - len(version_prefix)
             if len(summary) > max_content_len:
                 summary = summary[:max_content_len-3] + "..."
-            full_commit_msg = f"{version_prefix} - {summary}"
+            full_commit_msg = f"{version_prefix}{summary}"
         else:
             full_commit_msg = summary
     else:
@@ -1015,80 +1134,118 @@ Git Diff:
     # Dry Run exit
     if DRY_RUN:
         print_info("DRY RUN: Would commit with message:")
+        if commit_mode in ['amend', 'fresh_amend']:
+            print_info("  (Would amend last commit)")
         print(f"  {full_commit_msg}")
         print_success("Dry run complete — no changes committed.")
         clear_session_state()
         sys.exit(0)
 
-    # Apply version changes
-    if bump_choice != "none" and final_version:
+    # Apply version changes (only for new commits)
+    if commit_mode == 'new' and bump_choice != "none" and final_version:
         update_version_in_files(final_version)
 
-    # Create Commit
-    if final_version and bump_choice != "none":
-        # Tag version
-        tag_name = f"v{final_version.lstrip('vV')}"
-        print_info(f"Tagging commit as {tag_name}...")
+    # Create Commit or Amend
+    if commit_mode in ['amend', 'fresh_amend']:
+        # Amend the last commit
+        print_info("Amending last commit...")
         
-        # Update changelog
-        update_changelog(final_version, summary, description)
+        # Stage any remaining files
+        for f in staged:
+            run_git_cmd(["add", f])
         
-        commit_args = ["git", "commit", "-m", full_commit_msg]
+        # Update changelog if needed
+        if commit_mode == 'fresh_amend':
+            # For fresh amend, update changelog with new message
+            update_changelog(curr_version, summary, description)
+        
+        # Amend commit
         try:
-            subprocess.run(commit_args, check=True)
-            # Create tag
-            subprocess.run(["git", "tag", "-a", tag_name, "-m", f"Version {tag_name}"], check=True)
-            print_success(f"Commit created and tagged as {tag_name}!")
+            subprocess.run(["git", "commit", "--amend", "-m", full_commit_msg], check=True)
+            print_success("Last commit amended successfully!")
         except subprocess.CalledProcessError as e:
-            print_error(f"Commit failed: {e}")
+            print_error(f"Amend failed: {e}")
             sys.exit(1)
     else:
-        commit_args = ["git", "commit", "-m", full_commit_msg]
-        try:
-            subprocess.run(commit_args, check=True)
-            print_success("Commit created!")
-        except subprocess.CalledProcessError as e:
-            print_error(f"Commit failed: {e}")
-            sys.exit(1)
+        # Normal new commit flow
+        if final_version and bump_choice != "none":
+            # Tag version
+            tag_name = f"v{final_version.lstrip('vV')}"
+            print_info(f"Tagging commit as {tag_name}...")
+            
+            # Update changelog
+            update_changelog(final_version, summary, description)
+            
+            commit_args = ["git", "commit", "-m", full_commit_msg]
+            try:
+                subprocess.run(commit_args, check=True)
+                # Create tag
+                subprocess.run(["git", "tag", "-a", tag_name, "-m", f"Version {tag_name}"], check=True)
+                print_success(f"Commit created and tagged as {tag_name}!")
+            except subprocess.CalledProcessError as e:
+                print_error(f"Commit failed: {e}")
+                sys.exit(1)
+        else:
+            commit_args = ["git", "commit", "-m", full_commit_msg]
+            try:
+                subprocess.run(commit_args, check=True)
+                print_success("Commit created!")
+            except subprocess.CalledProcessError as e:
+                print_error(f"Commit failed: {e}")
+                sys.exit(1)
 
-    # 8. Post-Commit Actions (Push, PR, CI)
+    # 9. Post-Commit Actions (Push, PR, CI)
+    # For amend mode, warn about force push
+    if commit_mode in ['amend', 'fresh_amend']:
+        print_warn("Note: You've amended a commit. If this was already pushed, you'll need to force push.")
+    
     try:
         # Check if we have a remote to push to
         remotes = run_git_cmd(["remote"])
         if remotes:
             push_choice = input(f"\n{COLOR_CYAN}{COLOR_BOLD}Push to remote? (y/n) [n]:{COLOR_RESET} ").strip().lower()
             if push_choice == "y":
-                print_info("Pushing to remote...")
-                push_args = ["git", "push"]
-                try:
-                    subprocess.run(push_args, check=True)
-                    if final_version and bump_choice != "none":
-                        subprocess.run(["git", "push", "origin", tag_name], check=True)
-                        print_success(f"Tag '{tag_name}' pushed to remote.")
-                    print_success("Push complete!")
-                    
-                    branch = run_git_cmd(["rev-parse", "--abbrev-ref", "HEAD"])
-                    if branch and branch not in ['main', 'master', 'HEAD']:
-                        pr_choice = input(f"\n{COLOR_CYAN}{COLOR_BOLD}Create Pull Request for branch '{branch}'? (y/n) [n]:{COLOR_RESET} ").strip().lower()
-                        if pr_choice == 'y':
-                            if shutil.which("gh"):
-                                try:
-                                    print_info("Creating Pull Request...")
-                                    subprocess.run([
-                                        "gh", "pr", "create",
-                                        "--title", summary,
-                                        "--body", description if description else "Auto-generated PR from commit."
-                                    ], check=True)
-                                    print_success("Pull Request created!")
-                                except subprocess.CalledProcessError:
-                                    print_warn("PR creation failed. It might already exist.")
-                            else:
-                                print_warn("GitHub CLI (gh) is required to create a PR automatically.")
-                    
-                    monitor_ci()
-                    
-                except subprocess.CalledProcessError as e:
-                    print_error(f"Push failed: {e}")
+                if commit_mode in ['amend', 'fresh_amend']:
+                    force_push = input(f"{COLOR_YELLOW}This is an amended commit. Force push? (y/n) [n]:{COLOR_RESET} ").strip().lower()
+                    if force_push == 'y':
+                        push_args = ["git", "push", "--force-with-lease"]
+                    else:
+                        print_info("Skipped push. Run 'git push --force-with-lease' manually when ready.")
+                        push_args = None
+                else:
+                    push_args = ["git", "push"]
+                
+                if push_args:
+                    print_info("Pushing to remote...")
+                    try:
+                        subprocess.run(push_args, check=True)
+                        if commit_mode == 'new' and final_version and bump_choice != "none" and 'tag_name' in locals():
+                            subprocess.run(["git", "push", "origin", tag_name], check=True)
+                            print_success(f"Tag '{tag_name}' pushed to remote.")
+                        print_success("Push complete!")
+                        
+                        branch = run_git_cmd(["rev-parse", "--abbrev-ref", "HEAD"])
+                        if branch and branch not in ['main', 'master', 'HEAD']:
+                            pr_choice = input(f"\n{COLOR_CYAN}{COLOR_BOLD}Create Pull Request for branch '{branch}'? (y/n) [n]:{COLOR_RESET} ").strip().lower()
+                            if pr_choice == 'y':
+                                if shutil.which("gh"):
+                                    try:
+                                        print_info("Creating Pull Request...")
+                                        subprocess.run([
+                                            "gh", "pr", "create",
+                                            "--title", summary,
+                                            "--body", description if description else "Auto-generated PR from commit."
+                                        ], check=True)
+                                        print_success("Pull Request created!")
+                                    except subprocess.CalledProcessError:
+                                        print_warn("PR creation failed. It might already exist.")
+                                else:
+                                    print_warn("GitHub CLI (gh) is required to create a PR automatically.")
+                        
+                        monitor_ci()
+                        
+                    except subprocess.CalledProcessError as e:
+                        print_error(f"Push failed: {e}")
             else:
                 print_info("Skipped push. Run 'git push' manually when ready.")
         else:
