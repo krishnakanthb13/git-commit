@@ -83,10 +83,11 @@ def run_git_cmd(args, strip=True):
         return None
 
 def detect_version():
-    """Detect current version from git tags or project files."""
+    """Detect current version from git tags, commit messages, or project files."""
     # 1. Check git tags
     tags = run_git_cmd(["tag", "-l"])
     semver_regex = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
+    tag_version = None
     if tags:
         valid_versions = []
         for tag in tags.split("\n"):
@@ -96,28 +97,118 @@ def detect_version():
         if valid_versions:
             # Sort by version tuple
             valid_versions.sort()
-            return valid_versions[-1][3], "git tag"
+            tag_version = valid_versions[-1][3]
 
-    # 2. Check package.json
+    # 2. Check git commit messages for version patterns
+    commit_version = None
+    commit_source = None
+    try:
+        # Look for version patterns in recent commit messages
+        log = run_git_cmd(["log", "--oneline", "-50"])  # Check last 50 commits
+        if log:
+            # Pattern for version in commit messages like "v1.2.3" or "version 1.2.3" or "bump to 1.2.3"
+            version_pattern = re.compile(r'(?:^|\s)(v?(\d+)\.(\d+)\.(\d+))(?:\s|$)', re.IGNORECASE)
+            found_versions = []
+            for line in log.split('\n'):
+                # Remove the commit hash (first word)
+                parts = line.split(' ', 1)
+                if len(parts) > 1:
+                    message = parts[1]
+                    matches = version_pattern.findall(message)
+                    for match in matches:
+                        full_match = match[0]  # The full version string including 'v' if present
+                        major, minor, patch = int(match[1]), int(match[2]), int(match[3])
+                        found_versions.append((major, minor, patch, full_match, message[:50]))
+            
+            if found_versions:
+                # Get the highest version found in commits
+                found_versions.sort()
+                latest = found_versions[-1]
+                commit_version = latest[3]  # The full version string
+                commit_source = f"commit message ('{latest[4]}...')"
+    except Exception:
+        pass
+
+    # 3. Check package.json
+    file_version = None
+    file_source = None
     if os.path.exists("package.json"):
         try:
             with open("package.json", "r", encoding="utf-8") as f:
                 data = json.load(f)
                 if "version" in data:
-                    return data["version"], "package.json"
+                    file_version = data["version"]
+                    file_source = "package.json"
         except Exception:
             pass
 
-    # 3. Check pyproject.toml
-    if os.path.exists("pyproject.toml"):
+    # 4. Check pyproject.toml
+    if not file_version and os.path.exists("pyproject.toml"):
         try:
             with open("pyproject.toml", "r", encoding="utf-8") as f:
                 for line in f:
                     m = re.match(r'^\s*version\s*=\s*["\']([^"\']+)["\']', line)
                     if m:
-                        return m.group(1), "pyproject.toml"
+                        file_version = m.group(1)
+                        file_source = "pyproject.toml"
+                        break
         except Exception:
             pass
+
+    # Collect all found versions for comparison
+    version_sources = []
+    if tag_version:
+        version_sources.append(("git tag", tag_version))
+    if commit_version:
+        version_sources.append(("git commit", commit_version))
+    if file_version:
+        version_sources.append((file_source, file_version))
+
+    # If multiple sources found and they differ, ask user which to use
+    if len(version_sources) > 1:
+        # Normalize and compare
+        unique_versions = {}
+        for source, ver in version_sources:
+            clean = ver.lstrip("vV")
+            if clean not in unique_versions:
+                unique_versions[clean] = []
+            unique_versions[clean].append(source)
+        
+        if len(unique_versions) > 1:
+            non_interactive = "--non-interactive" in sys.argv or any(
+                os.getenv(v) for v in ['CI', 'GITHUB_ACTIONS', 'GITLAB_CI', 'JENKINS_URL', 'TRAVIS']
+            )
+            
+            if not non_interactive:
+                print_warn("Version mismatch detected between different sources:")
+                for idx, (source, ver) in enumerate(version_sources, 1):
+                    print(f"  {idx}) {source}: {COLOR_GREEN}{ver}{COLOR_RESET}")
+                
+                while True:
+                    choice = input(
+                        f"\n{COLOR_CYAN}Which version should be used as the current version? "
+                        f"[1-{len(version_sources)}]: {COLOR_RESET}"
+                    ).strip()
+                    try:
+                        idx = int(choice) - 1
+                        if 0 <= idx < len(version_sources):
+                            return version_sources[idx][1], version_sources[idx][0]
+                    except ValueError:
+                        pass
+                    print_error(f"Invalid selection. Please enter a number between 1 and {len(version_sources)}.")
+            else:
+                # Default to git tag in non-interactive mode, then commit, then file
+                print_info("Non-interactive mode: using git tag version")
+                return tag_version or commit_version or file_version or "0.0.0", \
+                       "git tag" if tag_version else (commit_source if commit_version else (file_source or "default"))
+
+    # Return single source or default
+    if tag_version:
+        return tag_version, "git tag"
+    if commit_version:
+        return commit_version, commit_source
+    if file_version:
+        return file_version, file_source
 
     return "0.0.0", "default"
 
@@ -1154,7 +1245,13 @@ Git Diff:
         update_version_in_files(final_version)
 
     # Create Commit or Amend
+    amended_tag = None
     if commit_mode in ['amend', 'fresh_amend']:
+        # Check if the commit we are amending has a tag pointing to it
+        tag_on_head = run_git_cmd(["tag", "--points-at", "HEAD"])
+        if tag_on_head:
+            amended_tag = tag_on_head.strip().split('\n')[0]
+
         # Amend the last commit
         print_info("Amending last commit...")
         
@@ -1171,6 +1268,12 @@ Git Diff:
         try:
             subprocess.run(["git", "commit", "--amend", "-m", full_commit_msg], check=True)
             print_success("Last commit amended successfully!")
+            
+            # If the original commit was tagged, move the tag to the new amended commit
+            if amended_tag:
+                print_info(f"Original commit had tag '{amended_tag}'. Moving tag to amended commit...")
+                subprocess.run(["git", "tag", "-f", amended_tag], check=True)
+                print_success(f"Tag '{amended_tag}' moved to amended commit locally.")
         except subprocess.CalledProcessError as e:
             print_error(f"Amend failed: {e}")
             sys.exit(1)
@@ -1230,6 +1333,11 @@ Git Diff:
                         if commit_mode == 'new' and final_version and bump_choice != "none" and 'tag_name' in locals():
                             subprocess.run(["git", "push", "origin", tag_name], check=True)
                             print_success(f"Tag '{tag_name}' pushed to remote.")
+                        elif commit_mode in ['amend', 'fresh_amend'] and amended_tag and force_push == 'y':
+                            # Also force push the amended tag
+                            print_info(f"Force-pushing amended tag '{amended_tag}'...")
+                            subprocess.run(["git", "push", "origin", amended_tag, "--force"], check=True)
+                            print_success(f"Tag '{amended_tag}' force-pushed to remote.")
                         print_success("Push complete!")
                         
                         branch = run_git_cmd(["rev-parse", "--abbrev-ref", "HEAD"])

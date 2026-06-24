@@ -54,7 +54,7 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
   - **Fresh Amend**: Completely replace the last commit message with AI-generated content
   - Smart force-push detection for amended commits
   - Session recovery preserves commit mode across crashes
-- 📦 **Semantic Versioning**: Auto-detects version from git tags, `package.json`, or `pyproject.toml` and updates those files on commit. Skips version bump for amend mode by default.
+- 📦 **Semantic Versioning**: Auto-detects version from git tags, recent commit messages, `package.json`, or `pyproject.toml` and updates those files on commit. Resolves version mismatches interactively across all sources. Skips version bump for amend mode by default.
 - 📜 **Changelog & PR Management**: Automatically updates `CHANGELOG.md` and can create GitHub Pull Requests using `gh` CLI.
 - 🤖 **Smart Context**: Detects architectural scope from file paths, extracts issue numbers from branch names, respects `.git/COMMIT_TEMPLATE` and `.github/PULL_REQUEST_TEMPLATE.md`, and learns from your repo's commit history. For amend mode, includes the original commit message as context.
 - 🔒 **Robustness**: Binary file detection, pre-commit hook integration, session recovery (crash-safe with commit mode preservation), and startup dependency checks.
