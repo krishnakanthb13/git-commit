@@ -483,12 +483,12 @@ def get_git_files():
 
 def prompt_amend_or_new():
     """Ask user whether to amend last commit or create new one."""
-    print(f"\n{COLOR_MAGENTA}{COLOR_BOLD}Commit Mode:{COLOR_RESET}")
-    print(f"  {COLOR_BOLD}n{COLOR_RESET}) Create a NEW commit")
-    print(f"  {COLOR_BOLD}a{COLOR_RESET}) AMEND the last commit (updates message and adds staged changes)")
-    print(f"  {COLOR_BOLD}f{COLOR_RESET}) FRESH amend (replace last commit message completely with new AI suggestion)")
+    print(f"\n{c(COLOR_MAGENTA)}{c(COLOR_BOLD)}Commit Mode:{c(COLOR_RESET)}")
+    print(f"  {c(COLOR_BOLD)}n{c(COLOR_RESET)}) Create a NEW commit")
+    print(f"  {c(COLOR_BOLD)}a{c(COLOR_RESET)}) AMEND the last commit (updates message and adds staged changes)")
+    print(f"  {c(COLOR_BOLD)}f{c(COLOR_RESET)}) FRESH amend (replace last commit message completely with new AI suggestion)")
     
-    choice = input(f"\n{COLOR_CYAN}Select mode [n/a/f]:{COLOR_RESET} ").strip().lower()
+    choice = input(f"\n{c(COLOR_CYAN)}Select mode [n/a/f]:{c(COLOR_RESET)} ").strip().lower()
     if choice == 'a':
         return 'amend'
     elif choice == 'f':
@@ -580,7 +580,7 @@ def prompt_stage_files(staged, unstaged, untracked):
 
 def monitor_ci():
     """Prompt and monitor CI using GitHub CLI if available."""
-    ci_choice = input(f"\n{COLOR_CYAN}{COLOR_BOLD}Monitor CI pipeline? (y/n) [n]:{COLOR_RESET} ").strip().lower()
+    ci_choice = input(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}Monitor CI pipeline? (y/n) [n]:{c(COLOR_RESET)} ").strip().lower()
     if ci_choice != "y":
         return
         
@@ -884,9 +884,9 @@ def clear_session_state():
 
 def show_startup_banner():
     """Display a clear startup banner with project context."""
-    print(f"\n{COLOR_MAGENTA}{COLOR_BOLD}{'='*60}{COLOR_RESET}")
-    print(f"{COLOR_MAGENTA}{COLOR_BOLD}  CommitGen - AI-Powered Git Commit Generator{COLOR_RESET}")
-    print(f"{COLOR_MAGENTA}{COLOR_BOLD}{'='*60}{COLOR_RESET}\n")
+    print(f"\n{c(COLOR_MAGENTA)}{c(COLOR_BOLD)}{'='*60}{c(COLOR_RESET)}")
+    print(f"{c(COLOR_MAGENTA)}{c(COLOR_BOLD)}  CommitGen - AI-Powered Git Commit Generator{c(COLOR_RESET)}")
+    print(f"{c(COLOR_MAGENTA)}{c(COLOR_BOLD)}{'='*60}{c(COLOR_RESET)}\n")
 
 def show_folder_structure(startpath, max_depth=3, max_files_per_dir=10):
     """Display a clean tree view of the project structure."""
@@ -975,13 +975,13 @@ def main():
     show_startup_banner()
     
     # 1. Print Google Gemini model name
-    print_info(f"🤖 AI Model: {COLOR_GREEN}Google Gemini - {model}{COLOR_RESET}")
+    print_info(f"🤖 AI Model: {c(COLOR_GREEN)}Google Gemini - {model}{c(COLOR_RESET)}")
     
-    # 3. Print folder name
+    # 2. Print folder name
     folder_name = os.path.basename(os.getcwd())
-    print_info(f"📁 Project: {COLOR_GREEN}{folder_name}{COLOR_RESET}")
+    print_info(f"📁 Project: {c(COLOR_GREEN)}{folder_name}{c(COLOR_RESET)}")
     
-    # 2. Show folder structure
+    # 3. Show folder structure
     print_info("📂 Repository Structure:")
     show_folder_structure(".")
     print()  # Extra newline for spacing
@@ -1246,7 +1246,7 @@ Git Diff:
     # Summary of what will be committed before the review loop
     if commit_mode == 'new':
         bump_preview = increment_version(curr_version, bump_choice) if bump_choice != "none" else curr_version
-        print_info(f"Preparing commit: {curr_version} → {COLOR_GREEN}{bump_preview}{COLOR_RESET} ({bump_choice} bump)")
+        print_info(f"Preparing commit: {curr_version} → {c(COLOR_GREEN)}{bump_preview}{c(COLOR_RESET)} ({bump_choice} bump)")
         print_info(f"Files to be committed: {len(staged)}")
         print_info(f"Commit mode: New commit with {'version tag' if bump_choice != 'none' else 'no version bump'}")
     
@@ -1272,20 +1272,20 @@ Git Diff:
                     display_summary = display_summary[:max_content_len-3] + "..."
                 display_summary = f"{version_prefix}{display_summary}"
                 
-        print(f"\n{COLOR_MAGENTA}================ PROPOSED COMMIT ================{COLOR_RESET}")
-        print(f"{COLOR_BOLD}Mode:{COLOR_RESET} {'AMEND' if commit_mode in ['amend', 'fresh_amend'] else 'NEW COMMIT'}")
-        print(f"{COLOR_BOLD}Files to commit:{COLOR_RESET}")
+        print(f"\n{c(COLOR_MAGENTA)}================ PROPOSED COMMIT ================{c(COLOR_RESET)}")
+        print(f"{c(COLOR_BOLD)}Mode:{c(COLOR_RESET)} {'AMEND' if commit_mode in ['amend', 'fresh_amend'] else 'NEW COMMIT'}")
+        print(f"{c(COLOR_BOLD)}Files to commit:{c(COLOR_RESET)}")
         for f in staged:
             print(f"  {f}")
         if commit_mode == 'new':
-            print(f"\n{COLOR_BOLD}Version Bump:{COLOR_RESET} {curr_version} -> {proposed_version} ({bump_choice})")
+            print(f"\n{c(COLOR_BOLD)}Version Bump:{c(COLOR_RESET)} {curr_version} -> {proposed_version} ({bump_choice})")
         else:
-            print(f"\n{COLOR_BOLD}Version:{COLOR_RESET} {curr_version} (amend mode - version unchanged)")
-        print(f"\n{COLOR_BOLD}Commit Message:{COLOR_RESET}")
-        print(f"  {COLOR_GREEN}{display_summary}{COLOR_RESET}")
+            print(f"\n{c(COLOR_BOLD)}Version:{c(COLOR_RESET)} {curr_version} (amend mode - version unchanged)")
+        print(f"\n{c(COLOR_BOLD)}Commit Message:{c(COLOR_RESET)}")
+        print(f"  {c(COLOR_GREEN)}{display_summary}{c(COLOR_RESET)}")
         if description:
             print(f"\n  {description}")
-        print(f"{COLOR_MAGENTA}================================================={COLOR_RESET}")
+        print(f"{c(COLOR_MAGENTA)}================================================={c(COLOR_RESET)}")
 
         validation_issues = validate_commit_message(f"{display_summary}\n\n{description}" if description else display_summary)
         if commit_mode == 'new' and bump_choice != "none" and proposed_version != curr_version:
@@ -1293,20 +1293,20 @@ Git Diff:
                 validation_issues.append(f"Proposed version '{proposed_version}' already exists as a local Git tag!")
 
         if validation_issues:
-            print(f"\n{COLOR_YELLOW}{COLOR_BOLD}Validation Warnings:{COLOR_RESET}")
+            print(f"\n{c(COLOR_YELLOW)}{c(COLOR_BOLD)}Validation Warnings:{c(COLOR_RESET)}")
             for issue in validation_issues:
-                print(f"  - {COLOR_YELLOW}{issue}{COLOR_RESET}")
+                print(f"  - {c(COLOR_YELLOW)}{issue}{c(COLOR_RESET)}")
 
         print(f"\nOptions:")
-        print(f"  {COLOR_BOLD}c{COLOR_RESET}) Commit as proposed")
-        print(f"  {COLOR_BOLD}e{COLOR_RESET}) Edit summary and description")
+        print(f"  {c(COLOR_BOLD)}c{c(COLOR_RESET)}) Commit as proposed")
+        print(f"  {c(COLOR_BOLD)}e{c(COLOR_RESET)}) Edit summary and description")
         if commit_mode == 'new':
-            print(f"  {COLOR_BOLD}g{COLOR_RESET}) Regenerate commit message with AI")
-            print(f"  {COLOR_BOLD}h{COLOR_RESET}) View version history")
-            print(f"  {COLOR_BOLD}v{COLOR_RESET}) Change version bump category (patch/minor/major/none)")
-        print(f"  {COLOR_BOLD}d{COLOR_RESET}) View detailed diff")
-        print(f"  {COLOR_BOLD}s{COLOR_RESET}) Spell check commit message")
-        print(f"  {COLOR_BOLD}x{COLOR_RESET}) Cancel and exit")
+            print(f"  {c(COLOR_BOLD)}g{c(COLOR_RESET)}) Regenerate commit message with AI")
+            print(f"  {c(COLOR_BOLD)}h{c(COLOR_RESET)}) View version history")
+            print(f"  {c(COLOR_BOLD)}v{c(COLOR_RESET)}) Change version bump category (patch/minor/major/none)")
+        print(f"  {c(COLOR_BOLD)}d{c(COLOR_RESET)}) View detailed diff")
+        print(f"  {c(COLOR_BOLD)}s{c(COLOR_RESET)}) Spell check commit message")
+        print(f"  {c(COLOR_BOLD)}x{c(COLOR_RESET)}) Cancel and exit")
 
         action = input(f"\nSelect option [c/e/{'g/h/v/' if commit_mode == 'new' else ''}d/s/x]: ").strip().lower()
 
@@ -1365,7 +1365,7 @@ Git Diff:
                     parts = line.split('|', 1)
                     tag = parts[0].strip()
                     date = parts[1].strip() if len(parts) > 1 else "unknown"
-                    print(f"  {COLOR_GREEN}{tag}{COLOR_RESET} ({date})")
+                    print(f"  {c(COLOR_GREEN)}{tag}{c(COLOR_RESET)} ({date})")
                 if len(tags_with_dates.split('\n')) > 15:
                     print(f"  ... and more")
             else:
@@ -1387,17 +1387,17 @@ Git Diff:
             continue
         elif action == "v" and commit_mode == 'new':
             # Show all bump options with previews
-            print(f"\n{COLOR_CYAN}Current version: {curr_version}{COLOR_RESET}")
+            print(f"\n{c(COLOR_CYAN)}Current version: {curr_version}{c(COLOR_RESET)}")
             
             patch_ver = increment_version(curr_version, "patch")
             minor_ver = increment_version(curr_version, "minor")
             major_ver = increment_version(curr_version, "major")
             
-            print(f"  {COLOR_BOLD}p{COLOR_RESET}) 🔧 Patch → {COLOR_GREEN}{patch_ver}{COLOR_RESET}")
-            print(f"  {COLOR_BOLD}m{COLOR_RESET}) ✨ Minor → {COLOR_GREEN}{minor_ver}{COLOR_RESET}")
-            print(f"  {COLOR_BOLD}j{COLOR_RESET}) 🚀 Major → {COLOR_GREEN}{major_ver}{COLOR_RESET}")
-            print(f"  {COLOR_BOLD}n{COLOR_RESET}) ⏸️  None  → {COLOR_GREEN}{curr_version}{COLOR_RESET} (keep current)")
-            print(f"  {COLOR_BOLD}c{COLOR_RESET}) ✏️  Custom version")
+            print(f"  {c(COLOR_BOLD)}p{c(COLOR_RESET)}) 🔧 Patch → {c(COLOR_GREEN)}{patch_ver}{c(COLOR_RESET)}")
+            print(f"  {c(COLOR_BOLD)}m{c(COLOR_RESET)}) ✨ Minor → {c(COLOR_GREEN)}{minor_ver}{c(COLOR_RESET)}")
+            print(f"  {c(COLOR_BOLD)}j{c(COLOR_RESET)}) 🚀 Major → {c(COLOR_GREEN)}{major_ver}{c(COLOR_RESET)}")
+            print(f"  {c(COLOR_BOLD)}n{c(COLOR_RESET)}) ⏸️  None  → {c(COLOR_GREEN)}{curr_version}{c(COLOR_RESET)} (keep current)")
+            print(f"  {c(COLOR_BOLD)}c{c(COLOR_RESET)}) ✏️  Custom version")
             
             v_bump = input("\nSelect bump type [p/m/j/n/c]: ").strip().lower()
             if v_bump == 'm':
@@ -1533,10 +1533,10 @@ Git Diff:
         # Check if we have a remote to push to
         remotes = run_git_cmd(["remote"])
         if remotes:
-            push_choice = input(f"\n{COLOR_CYAN}{COLOR_BOLD}Push to remote? (y/n) [n]:{COLOR_RESET} ").strip().lower()
+            push_choice = input(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}Push to remote? (y/n) [n]:{c(COLOR_RESET)} ").strip().lower()
             if push_choice == "y":
                 if commit_mode in ['amend', 'fresh_amend']:
-                    force_push = input(f"{COLOR_YELLOW}This is an amended commit. Force push? (y/n) [n]:{COLOR_RESET} ").strip().lower()
+                    force_push = input(f"{c(COLOR_YELLOW)}This is an amended commit. Force push? (y/n) [n]:{c(COLOR_RESET)} ").strip().lower()
                     if force_push == 'y':
                         push_args = ["git", "push", "--force-with-lease"]
                     else:
@@ -1552,7 +1552,7 @@ Git Diff:
                         if commit_mode == 'new' and final_version and bump_choice != "none" and 'tag_name' in locals():
                             # Check if tag already exists on remote
                             if check_remote_tag(tag_name):
-                                overwrite_remote = input(f"\n{COLOR_YELLOW}Tag '{tag_name}' already exists on remote. Force push/overwrite? (y/n) [n]:{COLOR_RESET} ").strip().lower()
+                                overwrite_remote = input(f"\n{c(COLOR_YELLOW)}Tag '{tag_name}' already exists on remote. Force push/overwrite? (y/n) [n]:{c(COLOR_RESET)} ").strip().lower()
                                 if overwrite_remote == 'y':
                                     subprocess.run(["git", "push", "origin", tag_name, "--force"], check=True)
                                     print_success(f"Tag '{tag_name}' force-pushed to remote.")
@@ -1571,7 +1571,7 @@ Git Diff:
                         
                         branch = run_git_cmd(["rev-parse", "--abbrev-ref", "HEAD"])
                         if branch and branch not in ['main', 'master', 'HEAD']:
-                            pr_choice = input(f"\n{COLOR_CYAN}{COLOR_BOLD}Create Pull Request for branch '{branch}'? (y/n) [n]:{COLOR_RESET} ").strip().lower()
+                            pr_choice = input(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}Create Pull Request for branch '{branch}'? (y/n) [n]:{c(COLOR_RESET)} ").strip().lower()
                             if pr_choice == 'y':
                                 if shutil.which("gh"):
                                     try:
