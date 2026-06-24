@@ -247,6 +247,23 @@ def is_valid_semver(version: str) -> bool:
     pattern = r'^v?(\d+)\.(\d+)\.(\d+)(-[a-zA-Z0-9.]+)?(\+[a-zA-Z0-9.]+)?$'
     return bool(re.match(pattern, version))
 
+def check_remote_tag(tag_name):
+    """Check if a tag exists on the remote."""
+    try:
+        result = subprocess.run(
+            ["git", "ls-remote", "--tags", "origin", tag_name],
+            capture_output=True, text=True, check=True
+        )
+        return bool(result.stdout.strip())
+    except subprocess.CalledProcessError:
+        return False
+
+def version_already_tagged(version: str) -> bool:
+    """Check if a version is already tagged."""
+    clean = version.lstrip("vV")
+    existing = run_git_cmd(["tag", "-l", f"v{clean}", f"{clean}"])
+    return bool(existing)
+
 def get_recent_commits(n=3):
     """Get last N commit messages for context."""
     log = run_git_cmd(["log", f"-{n}", "--oneline", "--no-decorate"])
@@ -1126,6 +1143,10 @@ Git Diff:
         print(f"{COLOR_MAGENTA}================================================={COLOR_RESET}")
 
         validation_issues = validate_commit_message(f"{display_summary}\n\n{description}" if description else display_summary)
+        if commit_mode == 'new' and bump_choice != "none" and proposed_version != curr_version:
+            if version_already_tagged(proposed_version):
+                validation_issues.append(f"Proposed version '{proposed_version}' already exists as a local Git tag!")
+
         if validation_issues:
             print(f"\n{COLOR_YELLOW}{COLOR_BOLD}Validation Warnings:{COLOR_RESET}")
             for issue in validation_issues:
@@ -1245,12 +1266,12 @@ Git Diff:
         update_version_in_files(final_version)
 
     # Create Commit or Amend
-    amended_tag = None
+    amended_tags = []
     if commit_mode in ['amend', 'fresh_amend']:
-        # Check if the commit we are amending has a tag pointing to it
+        # Check if the commit we are amending has tags pointing to it
         tag_on_head = run_git_cmd(["tag", "--points-at", "HEAD"])
         if tag_on_head:
-            amended_tag = tag_on_head.strip().split('\n')[0]
+            amended_tags = [t.strip() for t in tag_on_head.strip().split('\n') if t.strip()]
 
         # Amend the last commit
         print_info("Amending last commit...")
@@ -1269,11 +1290,12 @@ Git Diff:
             subprocess.run(["git", "commit", "--amend", "-m", full_commit_msg], check=True)
             print_success("Last commit amended successfully!")
             
-            # If the original commit was tagged, move the tag to the new amended commit
-            if amended_tag:
-                print_info(f"Original commit had tag '{amended_tag}'. Moving tag to amended commit...")
-                subprocess.run(["git", "tag", "-f", amended_tag], check=True)
-                print_success(f"Tag '{amended_tag}' moved to amended commit locally.")
+            # If the original commit was tagged, move the tags to the new amended commit
+            if amended_tags:
+                print_info(f"Original commit had tags: {', '.join(amended_tags)}. Moving tags to amended commit...")
+                for tag in amended_tags:
+                    subprocess.run(["git", "tag", "-f", tag], check=True)
+                print_success(f"Tags moved to amended commit locally.")
         except subprocess.CalledProcessError as e:
             print_error(f"Amend failed: {e}")
             sys.exit(1)
@@ -1331,13 +1353,23 @@ Git Diff:
                     try:
                         subprocess.run(push_args, check=True)
                         if commit_mode == 'new' and final_version and bump_choice != "none" and 'tag_name' in locals():
-                            subprocess.run(["git", "push", "origin", tag_name], check=True)
-                            print_success(f"Tag '{tag_name}' pushed to remote.")
-                        elif commit_mode in ['amend', 'fresh_amend'] and amended_tag and force_push == 'y':
-                            # Also force push the amended tag
-                            print_info(f"Force-pushing amended tag '{amended_tag}'...")
-                            subprocess.run(["git", "push", "origin", amended_tag, "--force"], check=True)
-                            print_success(f"Tag '{amended_tag}' force-pushed to remote.")
+                            # Check if tag already exists on remote
+                            if check_remote_tag(tag_name):
+                                overwrite_remote = input(f"\n{COLOR_YELLOW}Tag '{tag_name}' already exists on remote. Force push/overwrite? (y/n) [n]:{COLOR_RESET} ").strip().lower()
+                                if overwrite_remote == 'y':
+                                    subprocess.run(["git", "push", "origin", tag_name, "--force"], check=True)
+                                    print_success(f"Tag '{tag_name}' force-pushed to remote.")
+                                else:
+                                    print_warn(f"Skipped pushing tag '{tag_name}' to avoid overwriting remote tag.")
+                            else:
+                                subprocess.run(["git", "push", "origin", tag_name], check=True)
+                                print_success(f"Tag '{tag_name}' pushed to remote.")
+                        elif commit_mode in ['amend', 'fresh_amend'] and amended_tags and force_push == 'y':
+                            # Also force push the amended tags
+                            for tag in amended_tags:
+                                print_info(f"Force-pushing amended tag '{tag}'...")
+                                subprocess.run(["git", "push", "origin", tag, "--force"], check=True)
+                                print_success(f"Tag '{tag}' force-pushed to remote.")
                         print_success("Push complete!")
                         
                         branch = run_git_cmd(["rev-parse", "--abbrev-ref", "HEAD"])

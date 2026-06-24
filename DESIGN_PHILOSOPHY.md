@@ -22,7 +22,7 @@ This document outlines the core architectural and design decisions behind the AI
 
 ## 4. Automatic Version Alignment
 - **Motivation**: Semantic versioning is often neglected or updated out of sync with commits.
-- **Implementation**: Binds version tracking directly into the commit pipeline, enabling simultaneous source file version increments (`package.json`, `pyproject.toml`), `CHANGELOG.md` generation, and git tags right alongside the commit command. Additionally, it checks git commit messages for version strings and resolves version conflicts across all sources interactively.
+- **Implementation**: Binds version tracking directly into the commit pipeline, enabling simultaneous source file version increments (`package.json`, `pyproject.toml`), `CHANGELOG.md` generation, and git tags right alongside the commit command. Additionally, it checks git commit messages for version strings, resolves version conflicts across all sources interactively, and detects if the proposed version is already tagged locally to prevent collision.
 
 ## 5. Automated Workflow Lifecycle
 - **Motivation**: Committing is only step one of modern development. A professional tool should support the full lifecycle up to deployment.
@@ -42,7 +42,7 @@ This document outlines the core architectural and design decisions behind the AI
 
 ## 9. Commit Message Validation & Quality Assurance
 - **Motivation**: AI-generated messages should still meet repository standards and conventional commit specifications.
-- **Implementation**: Built-in validation checks commit messages for 72-character line limit, proper conventional commit format (`feat:`, `fix:`, `docs:`, `style:`, `refactor:`, `test:`, `chore:`, `perf:`, `ci:`, `build:`, `revert:`, `update:`), and required blank line after title. Validation warnings displayed in review screen. Optional spell-checking via system `aspell` command (press `s` in review). Commit statistics with per-extension file counts provide context before finalizing.
+- **Implementation**: Built-in validation checks commit messages for 72-character line limit, proper conventional commit format (`feat:`, `fix:`, `docs:`, `style:`, `refactor:`, `test:`, `chore:`, `perf:`, `ci:`, `build:`, `revert:`, `update:`), and required blank line after title. Validation warnings (including version tag collision warning) displayed in review screen. Optional spell-checking via system `aspell` command (press `s` in review). Commit statistics with per-extension file counts provide context before finalizing.
 
 ## 10. Flexible Commit History Management
 - **Motivation**: Real development workflows often require updating or refining previous commits—whether to fix a typo, add forgotten changes, or rephrase for clarity. A commit tool should support these workflows natively rather than forcing users to use complex git commands.
@@ -54,7 +54,7 @@ This document outlines the core architectural and design decisions behind the AI
   - Smart force-push detection for amended commits that were already pushed
   - Version bump automatically disabled for amend mode (no accidental version changes)
   - Session recovery preserves commit mode for crash safety
-  - **Tag relocation**: Automatically moves tags to the new amended commit locally and force-pushes them to remote to prevent tags from pointing to old hidden commits.
+  - **Tag relocation**: Automatically moves all associated tags to the new amended commit locally and force-pushes them to remote to prevent tags from pointing to old hidden commits.
 
 ## 11. Rich Context & Template Support
 - **Motivation**: AI-generated commit messages are most useful when they understand project conventions and the full scope of changes.

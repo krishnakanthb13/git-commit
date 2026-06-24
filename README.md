@@ -29,7 +29,7 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 9. 🔍 **Detects binary files** and scopes from file paths
 10. 🔗 **Links issues** from branches/commits
 11. 💾 **Saves session state** for crash recovery (includes commit mode and amend state)
-12. 🚀 **Pushes to remote** with tags and force push support for amended commits
+12. 🚀 **Pushes to remote** with multiple tags support, force push warnings for amended commits, and remote tag conflict prompts
 13. 🔧 **Creates Pull Requests** via GitHub CLI
 14. 👀 **Monitors CI pipelines** after push
 15. 🎨 **Beautiful CLI interface** with colors
@@ -54,13 +54,13 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
   - **Fresh Amend**: Completely replace the last commit message with AI-generated content
   - Smart force-push detection for amended commits
   - Session recovery preserves commit mode across crashes
-- 📦 **Semantic Versioning**: Auto-detects version from git tags, recent commit messages, `package.json`, or `pyproject.toml` and updates those files on commit. Resolves version mismatches interactively across all sources. Skips version bump for amend mode by default.
+- 📦 **Semantic Versioning**: Auto-detects version from git tags, recent commit messages, `package.json`, or `pyproject.toml` and updates those files on commit. Resolves version mismatches interactively across all sources. Skips version bump for amend mode by default. Includes local version collision detection (warnings when proposed bump already exists as a local tag) and remote tag check to prompt before overwriting.
 - 📜 **Changelog & PR Management**: Automatically updates `CHANGELOG.md` and can create GitHub Pull Requests using `gh` CLI.
 - 🤖 **Smart Context**: Detects architectural scope from file paths, extracts issue numbers from branch names, respects `.git/COMMIT_TEMPLATE` and `.github/PULL_REQUEST_TEMPLATE.md`, and learns from your repo's commit history. For amend mode, includes the original commit message as context.
-- 🔒 **Robustness**: Binary file detection, pre-commit hook integration, session recovery (crash-safe with commit mode preservation), and startup dependency checks.
+- 🔒 **Robustness**: Binary file detection, pre-commit hook integration, session recovery (crash-safe with commit mode preservation), startup dependency checks, and remote/local tag conflict checks.
 - ⚙️ **Configurable**: Per-repo `.commitgenrc` JSON config for default bump type, diff size, and model. Global config via `~/.commitgenrc`.
 - 🚀 **CI/CD Ready**: `--dry-run` and `--non-interactive` flags for headless/automated environments. Auto-detects CI environments (GitHub Actions, GitLab CI, Jenkins, Travis).
-- 🔍 **Commit Validation**: Validates commit messages against conventional commit format (72 char limit, proper format, blank line after title). Shows warnings in review screen.
+- 🔍 **Commit Validation**: Validates commit messages against conventional commit format (72 char limit, proper format, blank line after title). Shows warnings in review screen for format violations and version tag collisions.
 - 📊 **Commit Statistics**: Shows detailed stats with per-extension file counts before committing.
 - 🔤 **Spell Checking**: Optional spell-check via system `aspell` command (press `s` in review screen).
 - 🛠️ **Interactive UI**:
@@ -69,7 +69,7 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
   - Review, edit (`e`), spell-check (`s`), or preview diffs (`d`) before committing
   - Version bump options (`v`) only shown for new commits (amend mode skips version bump by default)
   - Monitor CI pipelines live directly after pushing
-  - Validation warnings displayed in review screen
+  - Validation warnings (including version tag collision warning) displayed in review screen
 
 ## Code Base
 

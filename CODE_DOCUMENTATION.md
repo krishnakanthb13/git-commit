@@ -29,6 +29,8 @@ This script implements the main execution loop. It is designed to be fully self-
 - `run_git_cmd(args, strip=True)`: Subprocess wrapper for git commands; returns stdout or `None`.
 - `detect_version()`: Priority order (non-interactive) — git tags → git commit messages → `package.json` → `pyproject.toml` → `0.0.0`. Collects versions from all sources and prompts the user interactively if there is any mismatch.
 - `validate_commit_message(message)`: Validates commit format (72 char limit, conventional format, blank line). Returns list of issues.
+- `check_remote_tag(tag_name)`: Queries remote tags using `git ls-remote --tags origin <tag_name>` to see if the tag already exists on remote.
+- `version_already_tagged(version: str) -> bool`: Checks if version tag already exists locally before allowing a version bump.
 - `get_branch_version_info()`: Returns sanitized branch name if not on `main`/`master`/`HEAD`.
 - `is_valid_semver(version: str) -> bool`: Regex validator for `vX.Y.Z(-pre)(+build)` format.
 - `get_recent_commits(n=3)`: Returns last N commit lines as context for the AI prompt.
@@ -106,7 +108,7 @@ The tool supports three commit modes for flexible history management:
 - Version bump option hidden in review screen for amend modes
 - AI prompt includes amend-specific context with original commit message
 - Version prefix added to commit message for all modes (prevents duplication)
-- **Tag relocation**: Automatically detects if the commit being amended has an associated Git tag; if found, it relocates that tag locally (`git tag -f <tag_name>`) and force-pushes it when the user pushes the commit.
+- **Tag relocation**: Automatically detects if the commit being amended has any associated Git tags; if found, it relocates all of them locally (`git tag -f <tag_name>`) and force-pushes them to remote when the user pushes the commit.
 
 ### Configuration Details
 
