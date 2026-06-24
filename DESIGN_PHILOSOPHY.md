@@ -74,5 +74,14 @@ This document outlines the core architectural and design decisions behind the AI
   - Git tag creation with version prefix
   - Pull Request creation via GitHub CLI (`gh pr create`)
   - CI pipeline monitoring with live streaming (`gh run watch`)
-  - Force-push detection and warnings for amended commits
+- Force-push detection and warnings for amended commits
   - Version prefix added to commit messages for all modes (e.g., `v1.2.3 - feat: add feature`)
+
+## 13. Terminal Resilience & Interface Stability
+- **Motivation**: Command-line interfaces should never crash or hang indefinitely due to recursive call stack limits, network timeouts, or stdout redirection errors.
+- **Implementation**:
+  - Replaces recursive interaction models in the file staging picker with iterative loops to avoid stack overflows.
+  - Adds connection timeouts (60 seconds) on API client boundaries to fail gracefully instead of hanging forever.
+  - Introduces defensive file-existence guards before opening files for binary checking, preventing errors on deleted files.
+  - Implements a centralized conditional ANSI color wrapper (`c()`) to prevent color escape codes from leaking in non-TTY or redirected output environments.
+  - Employs robust printing fallbacks to quietly suppress/bypass terminal errors if stdout streams are closed or redirected.

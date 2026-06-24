@@ -47,17 +47,17 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 ## Features
 
 - 🔋 **Zero Dependencies**: Requires only standard Python 3 libraries. No `pip install` required.
-- ⚡ **Highly Efficient**: Single structured JSON API call. Smartly optimizes and truncates large diffs while preserving file headers.
+- ⚡ **Highly Efficient**: Single structured JSON API call with 60-second timeouts to prevent hanging. Smartly optimizes and truncates large diffs while preserving file headers.
 - 🔄 **Powerful Amend Workflow**: Three commit modes for flexible history management:
   - **New**: Create a fresh commit with version bump and tag
   - **Amend**: Update the last commit message and add new staged changes (preserves original as context)
   - **Fresh Amend**: Completely replace the last commit message with AI-generated content
   - Smart force-push detection for amended commits
   - Session recovery preserves commit mode across crashes
-- 📦 **Semantic Versioning**: Auto-detects version from git tags, recent commit messages, `package.json`, or `pyproject.toml` and updates those files on commit. Resolves version mismatches interactively across all sources. Skips version bump for amend mode by default. Includes local version collision detection (warnings when proposed bump already exists as a local tag) and remote tag check to prompt before overwriting.
+- 📦 **Semantic Versioning**: Auto-detects version from git tags, recent commit messages, `package.json`, or `pyproject.toml` and updates those files on commit. Automatically stages version files after a bump. Resolves version mismatches interactively across all sources. Skips version bump for amend mode by default. Includes local version collision detection (warnings when proposed bump already exists as a local tag) and remote tag check to prompt before overwriting.
 - 📜 **Changelog & PR Management**: Automatically updates `CHANGELOG.md` and can create GitHub Pull Requests using `gh` CLI.
 - 🤖 **Smart Context**: Detects architectural scope from file paths, extracts issue numbers from branch names, respects `.git/COMMIT_TEMPLATE` and `.github/PULL_REQUEST_TEMPLATE.md`, and learns from your repo's commit history. For amend mode, includes the original commit message as context.
-- 🔒 **Robustness**: Binary file detection, pre-commit hook integration, session recovery (crash-safe with commit mode preservation), startup dependency checks, and remote/local tag conflict checks.
+- 🔒 **Robustness**: Binary file existence checks, pre-commit hook integration, session recovery (crash-safe with commit mode preservation), startup dependency checks, safe ANSI color fallback via `c()` helper, and remote/local tag conflict checks.
 - ⚙️ **Configurable**: Per-repo `.commitgenrc` JSON config for default bump type, diff size, and model. Global config via `~/.commitgenrc`.
 - 🚀 **CI/CD Ready**: `--dry-run` and `--non-interactive` flags for headless/automated environments. Auto-detects CI environments (GitHub Actions, GitLab CI, Jenkins, Travis).
 - 🔍 **Commit Validation**: Validates commit messages against conventional commit format (72 char limit, proper format, blank line after title). Shows warnings in review screen for format violations and version tag collisions.
@@ -65,7 +65,7 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 - 🔤 **Spell Checking**: Optional spell-check via system `aspell` command (press `s` in review screen).
 - 🛠️ **Interactive UI**:
   - **Commit Mode Selection**: Choose between new commit, amend, or fresh amend at startup
-  - Stage, unstage (`u`), and review files with detailed commit statistics
+  - Stage, unstage (`u`), and review files with an iterative picker loop (preventing stack overflows and supporting pre-staged files)
   - Review, edit (`e`), spell-check (`s`), or preview diffs (`d`) before committing
   - Version bump options (`v`) only shown for new commits (amend mode skips version bump by default)
   - Monitor CI pipelines live directly after pushing
@@ -75,7 +75,7 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 
 ```
 git-commit/
-├── git_commit.py              ← main tool (1,265 lines)
+├── git_commit.py              ← main tool (1,611 lines)
 ├── register.py                ← install/uninstall context menu (winreg)
 ├── .env.template              ← copy to .env and add your API key
 ├── .env                       ← local configuration (contains API key, gitignored)

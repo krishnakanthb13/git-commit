@@ -6,7 +6,7 @@ This document describes the technical implementation details of the AI Git Commi
 
 ```
 git-commit/
-├── git_commit.py              # Core CLI tool logic (1,265 lines)
+├── git_commit.py              # Core CLI tool logic (1,611 lines)
 ├── register.py                # Windows Registry integration helper
 ├── .env.template              # Configuration environment template
 ├── .env                       # Local configuration (contains API key, gitignored)
@@ -24,7 +24,8 @@ This script implements the main execution loop. It is designed to be fully self-
 ### Main Functions
 
 **Core helpers**
-- `print_success(msg)`, `print_info(msg)`, `print_warn(msg)`, `print_error(msg)`: Colored output helpers with NO_COLOR support.
+- `c(color_code)`: Conditional color helper that returns the color code if `USE_COLORS` is enabled, otherwise returns an empty string. Prevents ANSI color code leaking on non-TTY environments.
+- `print_success(msg)`, `print_info(msg)`, `print_warn(msg)`, `print_error(msg)`: Colored output helpers with NO_COLOR/c() support.
 - `load_dotenv()`: Parses `.env` file without external dependencies. It looks in the directory where the script (`git_commit.py`) is located first, and then in the current working directory.
 - `run_git_cmd(args, strip=True)`: Subprocess wrapper for git commands; returns stdout or `None`.
 - `detect_version()`: Priority order (non-interactive) — git tags → git commit messages → `package.json` → `pyproject.toml` → `0.0.0`. Collects versions from all sources and prompts the user interactively if there is any mismatch.
@@ -41,14 +42,14 @@ This script implements the main execution loop. It is designed to be fully self-
 
 **Version management**
 - `increment_version(version_str, bump_type)`: Semver bump; also handles `custom:x.y.z` passthrough.
-- `update_version_in_files(new_version)`: Edits version field in `package.json` and `pyproject.toml`.
+- `update_version_in_files(new_version)`: Edits version field in `package.json` and `pyproject.toml`. Automatically stages these files to ensure the version updates are included in the same commit.
 
 **File & staging**
 - `get_git_files()`: Parses `git status --porcelain -z` (null-terminated) into staged/unstaged/untracked lists.
 - `prompt_amend_or_new()`: Interactive prompt to select commit mode - new (`n`), amend (`a`), or fresh amend (`f`). Returns the selected mode.
-- `prompt_stage_files(staged, unstaged, untracked)`: Interactive picker with stage (`a`, numbers), unstage (`u`), and quit (`q`) options. Already-staged files shown in green.
+- `prompt_stage_files(staged, unstaged, untracked)`: Interactive picker with stage (`a`, numbers), unstage (`u`), and quit (`q`) options. Uses an iterative while-loop to prevent recursive stack overflows, and correctly handles empty inputs to accept pre-staged files. Already-staged files shown in green.
 - `show_commit_stats(staged)`: Prints `git diff --stat` and a per-extension file count.
-- `is_binary_file(filepath)`: Reads first 1 KB for null bytes to identify binary files.
+- `is_binary_file(filepath)`: Reads first 1 KB for null bytes to identify binary files, with checks for file existence to handle deleted files gracefully.
 
 **Analysis**
 - `detect_conventional_scope(files)`: Maps file path prefixes (e.g., `ui/`, `db/`) to conventional commit scope labels.
@@ -58,7 +59,7 @@ This script implements the main execution loop. It is designed to be fully self-
 **Configuration & environment**
 - `load_config()`: Reads `.commitgenrc` (repo) or `~/.commitgenrc` (global) JSON for default settings.
 - `check_dependencies()`: Validates Python 3.6+, `git` is on PATH; warns if `gh` is missing.
-- `is_ci_environment()`: Returns `True` if any CI env var (`CI`, `GITHUB_ACTIONS`, `GITLAB_CI`, `JENKINS_URL`, `TRAVIS`) is set.
+- `is_ci_environment()`: Returns `True` if any CI env var (`CI`, GITHUB_ACTIONS, GITLAB_CI, JENKINS_URL, TRAVIS) is set.
 
 **Session recovery**
 - `save_session_state(state)`: Persists current session dict to `.git/COMMITGEN_STATE`. Includes commit mode, summary, description, bump choice, staged files, and version.
@@ -70,7 +71,7 @@ This script implements the main execution loop. It is designed to be fully self-
 - `monitor_ci()`: Uses `gh run watch` to stream live CI output after a push. Checks for active runs, shows status, and monitors until completion.
 
 **API**
-- `call_gemini_api(api_key, model, prompt_text)`: POST to Gemini REST API with JSON schema enforcement and exponential-backoff retries (max 3). Returns structured JSON with `summary` and `description`.
+- `call_gemini_api(api_key, model, prompt_text)`: POST to Gemini REST API with JSON schema enforcement, exponential-backoff retries (max 3), and a 60-second connection timeout to avoid hanging connections. Returns structured JSON with `summary` and `description`.
 
 ### Amend Mode Functionality
 

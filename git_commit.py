@@ -18,7 +18,14 @@ COLOR_MAGENTA = "\033[95m"
 COLOR_BOLD = "\033[1m"
 COLOR_RESET = "\033[0m"
 
-USE_COLORS = os.getenv("NO_COLOR") is None and sys.stdout.isatty()
+try:
+    USE_COLORS = os.getenv("NO_COLOR") is None and sys.stdout.isatty()
+except Exception:
+    USE_COLORS = False
+
+def c(color_code):
+    """Return color code only if colors are enabled."""
+    return color_code if USE_COLORS else ""
 
 _orig_print = print
 
@@ -52,8 +59,8 @@ def print(*args, **kwargs):
             try:
                 _orig_print(text.encode('ascii', errors='replace').decode('ascii'), **kwargs)
             except Exception:
-                # If everything else fails, call original print with original args
-                _orig_print(*args, **kwargs)
+                # Last resort: suppress output rather than re-raising the same error
+                pass
 
 def print_success(msg):
     if USE_COLORS:
@@ -203,7 +210,7 @@ def detect_version():
 
     for name, ver in search_results:
         ver_str = ver if ver else "not found"
-        print(f"  - {name}: {COLOR_GREEN if ver else COLOR_YELLOW}{ver_str}{COLOR_RESET}")
+        print(f"  - {name}: {c(COLOR_GREEN) if ver else c(COLOR_YELLOW)}{ver_str}{c(COLOR_RESET)}")
 
     # Build selectable list of valid versions
     valid_choices = []
@@ -224,12 +231,12 @@ def detect_version():
         return valid_choices[0][0], valid_choices[0][1]
 
     # Present list to user to select
-    print(f"\n{COLOR_CYAN}Select which version should be used as the base version to bump (+1):{COLOR_RESET}")
+    print(f"\n{c(COLOR_CYAN)}Select which version should be used as the base version to bump (+1):{c(COLOR_RESET)}")
     for idx, (ver, name) in enumerate(valid_choices, 1):
-        print(f"  {COLOR_BOLD}{idx}{COLOR_RESET}) {ver} (from {name})")
+        print(f"  {c(COLOR_BOLD)}{idx}{c(COLOR_RESET)}) {ver} (from {name})")
     
     # Allow custom version as well
-    print(f"  {COLOR_BOLD}{len(valid_choices)+1}{COLOR_RESET}) Use a custom base version")
+    print(f"  {c(COLOR_BOLD)}{len(valid_choices)+1}{c(COLOR_RESET)}) Use a custom base version")
 
     while True:
         choice = input(f"Enter choice [1-{len(valid_choices)+1}]: ").strip()
@@ -491,76 +498,85 @@ def prompt_amend_or_new():
 
 def prompt_stage_files(staged, unstaged, untracked):
     """Always show full file picker so user can review/add files before committing."""
-    all_available = (
-        [(f, "staged")    for f in staged] +
-        [(f, "modified")  for f in unstaged] +
-        [(f, "untracked") for f in untracked]
-    )
-    if not all_available:
-        return False
-
-    print_info("Select files to stage/commit:")
-    for idx, (f, status) in enumerate(all_available, 1):
-        color = COLOR_GREEN if status == "staged" else ""
-        print(f"  {COLOR_BOLD}{idx}{COLOR_RESET}) [{color}{status}{COLOR_RESET}] {f}")
-    
-    print(f"  {COLOR_BOLD}a{COLOR_RESET}) Stage all files")
-    print(f"  {COLOR_BOLD}u{COLOR_RESET}) Unstage files (select from staged)")
-    print(f"  {COLOR_BOLD}q{COLOR_RESET}) Quit")
-    print(f"\n  {COLOR_CYAN}(Already-staged files shown in green){COLOR_RESET}")
-
-    choice = input("\nEnter choice(s) (comma-separated numbers, 'a', 'u', or 'q'): ").strip().lower()
-    if choice == 'q':
-        sys.exit(0)
-    elif choice == 'a':
-        for f, _ in all_available:
-            run_git_cmd(["add", f])
-        print_success("Staged all files.")
-        return True
-    elif choice == 'u':
-        if not staged:
-            print_warn("No staged files to unstage.")
-            return prompt_stage_files(staged, unstaged, untracked)
-        
-        print_info("Select files to unstage:")
-        for idx, f in enumerate(staged, 1):
-            print(f"  {COLOR_BOLD}{idx}{COLOR_RESET}) {f}")
-        
-        unstage_choice = input("\nEnter numbers to unstage (comma-separated): ").strip()
-        try:
-            for part in unstage_choice.split(","):
-                part = part.strip()
-                if part:
-                    idx = int(part)
-                    if 1 <= idx <= len(staged):
-                        run_git_cmd(["restore", "--staged", staged[idx-1]])
-                        print_success(f"Unstaged: {staged[idx-1]}")
-        except ValueError:
-            print_error("Invalid selection.")
-        
-        return prompt_stage_files(*get_git_files())
-    else:
-        indices = []
-        try:
-            for part in choice.split(","):
-                part = part.strip()
-                if part:
-                    idx = int(part)
-                    if 1 <= idx <= len(all_available):
-                        indices.append(idx - 1)
-        except ValueError:
-            print_error("Invalid selection. No files staged.")
+    while True:
+        all_available = (
+            [(f, "staged")    for f in staged] +
+            [(f, "modified")  for f in unstaged] +
+            [(f, "untracked") for f in untracked]
+        )
+        if not all_available:
             return False
 
-        if not indices:
+        print_info("Select files to stage/commit:")
+        for idx, (f, status) in enumerate(all_available, 1):
+            color = c(COLOR_GREEN) if status == "staged" else ""
+            print(f"  {c(COLOR_BOLD)}{idx}{c(COLOR_RESET)}) [{color}{status}{c(COLOR_RESET)}] {f}")
+        
+        print(f"  {c(COLOR_BOLD)}a{c(COLOR_RESET)}) Stage all files")
+        print(f"  {c(COLOR_BOLD)}u{c(COLOR_RESET)}) Unstage files (select from staged)")
+        print(f"  {c(COLOR_BOLD)}q{c(COLOR_RESET)}) Quit")
+        print(f"\n  {c(COLOR_CYAN)}(Already-staged files shown in green){c(COLOR_RESET)}")
+
+        choice = input("\nEnter choice(s) (comma-separated numbers, 'a', 'u', or 'q'): ").strip().lower()
+        if choice == 'q':
+            sys.exit(0)
+        elif choice == 'a':
+            for f, _ in all_available:
+                run_git_cmd(["add", f])
+            print_success("Staged all files.")
+            return True
+        elif choice == 'u':
+            if not staged:
+                print_warn("No staged files to unstage.")
+                continue  # Loop back to re-display the picker
+            
+            print_info("Select files to unstage:")
+            for idx, f in enumerate(staged, 1):
+                print(f"  {c(COLOR_BOLD)}{idx}{c(COLOR_RESET)}) {f}")
+            
+            unstage_choice = input("\nEnter numbers to unstage (comma-separated): ").strip()
+            try:
+                for part in unstage_choice.split(","):
+                    part = part.strip()
+                    if part:
+                        idx = int(part)
+                        if 1 <= idx <= len(staged):
+                            run_git_cmd(["restore", "--staged", staged[idx-1]])
+                            print_success(f"Unstaged: {staged[idx-1]}")
+            except ValueError:
+                print_error("Invalid selection.")
+            
+            # Refresh file lists and loop back
+            staged, unstaged, untracked = get_git_files()
+            continue
+        elif choice == '':
+            # Empty input: if files are already staged, proceed without changes
+            if staged:
+                return True
             print_warn("No files selected.")
             return False
+        else:
+            indices = []
+            try:
+                for part in choice.split(","):
+                    part = part.strip()
+                    if part:
+                        idx = int(part)
+                        if 1 <= idx <= len(all_available):
+                            indices.append(idx - 1)
+            except ValueError:
+                print_error("Invalid selection. No files staged.")
+                return False
 
-        for idx in indices:
-            f, _ = all_available[idx]
-            run_git_cmd(["add", f])
-            print_success(f"Staged: {f}")
-        return True
+            if not indices:
+                print_warn("No files selected.")
+                return False
+
+            for idx in indices:
+                f, _ = all_available[idx]
+                run_git_cmd(["add", f])
+                print_success(f"Staged: {f}")
+            return True
 
 def monitor_ci():
     """Prompt and monitor CI using GitHub CLI if available."""
@@ -673,7 +689,7 @@ def call_gemini_api(api_key, model, prompt_text):
     max_retries = 3
     for attempt in range(1, max_retries + 1):
         try:
-            with urllib.request.urlopen(req) as response:
+            with urllib.request.urlopen(req, timeout=60) as response:
                 res_data = json.loads(response.read().decode("utf-8"))
                 
                 # Better error recovery
@@ -891,7 +907,7 @@ def show_folder_structure(startpath, max_depth=3, max_files_per_dir=10):
     except Exception:
         pass
     
-    if not root_items and not any(True for _ in os.walk(startpath)):
+    if not root_items:
         print("  (empty directory)")
         return
 
@@ -1007,13 +1023,11 @@ def main():
 
         if NON_INTERACTIVE:
             # In CI mode: auto-stage all and proceed
-            for f, _ in ([(f, 'x') for f in unstaged] + [(f, 'x') for f in untracked]):
+            for f in unstaged + untracked:
                 run_git_cmd(["add", f])
             staged, _, _ = get_git_files()
         else:
-            staged_any = prompt_stage_files(staged, unstaged, untracked)
-            if not staged_any:
-                sys.exit(0)
+            prompt_stage_files(staged, unstaged, untracked)
             staged, _, _ = get_git_files()
 
         if not staged:
@@ -1023,7 +1037,7 @@ def main():
         print_info(f"Staged files for commit:\n" + "\n".join(f"  - {f}" for f in staged))
 
         # Warn about binary files
-        binary_files = [f for f in staged if is_binary_file(f)]
+        binary_files = [f for f in staged if os.path.exists(f) and is_binary_file(f)]
         if binary_files:
             print_warn(f"Binary files detected (excluded from AI diff): {', '.join(binary_files)}")
 
@@ -1216,11 +1230,11 @@ Git Diff:
     bump_choice = config.get("default_bump", "patch") if not saved_state else saved_state.get('bump_choice', 'patch')
 
     # Guard: ensure user_context, diff, and prompt_text are always defined (resume path may skip them)
-    if 'user_context' not in dir() and 'user_context' not in locals():
+    if 'user_context' not in locals():
         user_context = ""
-    if 'diff' not in dir() and 'diff' not in locals():
+    if 'diff' not in locals():
         diff = "(Diff not available — resumed from saved session)"
-    if 'prompt_text' not in dir() and 'prompt_text' not in locals():
+    if 'prompt_text' not in locals():
         prompt_text = ""
 
     # Try to extract version from user context
@@ -1442,6 +1456,10 @@ Git Diff:
     # Apply version changes (only for new commits)
     if commit_mode == 'new' and bump_choice != "none" and final_version:
         update_version_in_files(final_version)
+        # Stage the updated version files so they're included in the commit
+        for vf in ["package.json", "pyproject.toml"]:
+            if os.path.exists(vf):
+                run_git_cmd(["add", vf])
 
     # Create Commit or Amend
     amended_tags = []
@@ -1510,6 +1528,7 @@ Git Diff:
     if commit_mode in ['amend', 'fresh_amend']:
         print_warn("Note: You've amended a commit. If this was already pushed, you'll need to force push.")
     
+    force_push = None  # Initialize to prevent UnboundLocalError in amend paths
     try:
         # Check if we have a remote to push to
         remotes = run_git_cmd(["remote"])
