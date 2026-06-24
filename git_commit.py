@@ -20,6 +20,41 @@ COLOR_RESET = "\033[0m"
 
 USE_COLORS = os.getenv("NO_COLOR") is None and sys.stdout.isatty()
 
+_orig_print = print
+
+def print(*args, **kwargs):
+    # Convert all arguments to strings
+    args_str = [str(arg) for arg in args]
+    text = " ".join(args_str)
+    try:
+        _orig_print(text, **kwargs)
+    except UnicodeEncodeError:
+        replacements = {
+            "├──": "|--",
+            "└──": "\\--",
+            "│": "|",
+            "🤖": "[AI]",
+            "📁": "[Dir]",
+            "📂": "[Repo]",
+            "📄": "[File]",
+            "🔧": "[Patch]",
+            "✨": "[Minor]",
+            "🚀": "[Major]",
+            "⏸️": "[None]",
+            "✏️": "[Custom]",
+            "🎉": "Success!",
+        }
+        for uni, asc in replacements.items():
+            text = text.replace(uni, asc)
+        try:
+            _orig_print(text, **kwargs)
+        except Exception:
+            try:
+                _orig_print(text.encode('ascii', errors='replace').decode('ascii'), **kwargs)
+            except Exception:
+                # If everything else fails, call original print with original args
+                _orig_print(*args, **kwargs)
+
 def print_success(msg):
     if USE_COLORS:
         print(f"{COLOR_GREEN}{COLOR_BOLD}[OK] {msg}{COLOR_RESET}")
@@ -143,74 +178,74 @@ def detect_version():
             pass
 
     # 4. Check pyproject.toml
-    if not file_version and os.path.exists("pyproject.toml"):
+    pyproject_version = None
+    pyproject_source = None
+    if os.path.exists("pyproject.toml"):
         try:
             with open("pyproject.toml", "r", encoding="utf-8") as f:
                 for line in f:
                     m = re.match(r'^\s*version\s*=\s*["\']([^"\']+)["\']', line)
                     if m:
-                        file_version = m.group(1)
-                        file_source = "pyproject.toml"
+                        pyproject_version = m.group(1)
+                        pyproject_source = "pyproject.toml"
                         break
         except Exception:
             pass
 
-    # Collect all found versions for comparison
-    version_sources = []
-    if tag_version:
-        version_sources.append(("git tag", tag_version))
-    if commit_version:
-        version_sources.append(("git commit", commit_version))
-    if file_version:
-        version_sources.append((file_source, file_version))
+    # List all search targets and search results
+    print_info("Searching for versions:")
+    search_results = [
+        ("git tag", tag_version),
+        ("git commit", commit_version),
+        ("package.json", file_version),
+        ("pyproject.toml", pyproject_version)
+    ]
 
-    # If multiple sources found and they differ, ask user which to use
-    if len(version_sources) > 1:
-        # Normalize and compare
-        unique_versions = {}
-        for source, ver in version_sources:
-            clean = ver.lstrip("vV")
-            if clean not in unique_versions:
-                unique_versions[clean] = []
-            unique_versions[clean].append(source)
-        
-        if len(unique_versions) > 1:
-            non_interactive = "--non-interactive" in sys.argv or any(
-                os.getenv(v) for v in ['CI', 'GITHUB_ACTIONS', 'GITLAB_CI', 'JENKINS_URL', 'TRAVIS']
-            )
-            
-            if not non_interactive:
-                print_warn("Version mismatch detected between different sources:")
-                for idx, (source, ver) in enumerate(version_sources, 1):
-                    print(f"  {idx}) {source}: {COLOR_GREEN}{ver}{COLOR_RESET}")
-                
-                while True:
-                    choice = input(
-                        f"\n{COLOR_CYAN}Which version should be used as the current version? "
-                        f"[1-{len(version_sources)}]: {COLOR_RESET}"
-                    ).strip()
-                    try:
-                        idx = int(choice) - 1
-                        if 0 <= idx < len(version_sources):
-                            return version_sources[idx][1], version_sources[idx][0]
-                    except ValueError:
-                        pass
-                    print_error(f"Invalid selection. Please enter a number between 1 and {len(version_sources)}.")
-            else:
-                # Default to git tag in non-interactive mode, then commit, then file
-                print_info("Non-interactive mode: using git tag version")
-                return tag_version or commit_version or file_version or "0.0.0", \
-                       "git tag" if tag_version else (commit_source if commit_version else (file_source or "default"))
+    for name, ver in search_results:
+        ver_str = ver if ver else "not found"
+        print(f"  - {name}: {COLOR_GREEN if ver else COLOR_YELLOW}{ver_str}{COLOR_RESET}")
 
-    # Return single source or default
-    if tag_version:
-        return tag_version, "git tag"
-    if commit_version:
-        return commit_version, commit_source
-    if file_version:
-        return file_version, file_source
+    # Build selectable list of valid versions
+    valid_choices = []
+    for name, ver in search_results:
+        if ver:
+            valid_choices.append((ver, name))
 
-    return "0.0.0", "default"
+    non_interactive = "--non-interactive" in sys.argv or any(
+        os.getenv(v) for v in ['CI', 'GITHUB_ACTIONS', 'GITLAB_CI', 'JENKINS_URL', 'TRAVIS']
+    )
+
+    if not valid_choices:
+        print_info("No versions found. Defaulting to 0.0.0.")
+        return "0.0.0", "default"
+
+    if non_interactive:
+        # Auto-select the first available version
+        return valid_choices[0][0], valid_choices[0][1]
+
+    # Present list to user to select
+    print(f"\n{COLOR_CYAN}Select which version should be used as the base version to bump (+1):{COLOR_RESET}")
+    for idx, (ver, name) in enumerate(valid_choices, 1):
+        print(f"  {COLOR_BOLD}{idx}{COLOR_RESET}) {ver} (from {name})")
+    
+    # Allow custom version as well
+    print(f"  {COLOR_BOLD}{len(valid_choices)+1}{COLOR_RESET}) Use a custom base version")
+
+    while True:
+        choice = input(f"Enter choice [1-{len(valid_choices)+1}]: ").strip()
+        try:
+            val = int(choice)
+            if 1 <= val <= len(valid_choices):
+                selected = valid_choices[val-1]
+                return selected[0], selected[1]
+            elif val == len(valid_choices) + 1:
+                custom_base = input("Enter custom base version (e.g. 1.0.0): ").strip()
+                if not custom_base:
+                    custom_base = "0.0.0"
+                return custom_base, "custom user entry"
+        except ValueError:
+            pass
+        print_error(f"Invalid selection. Please enter a number between 1 and {len(valid_choices)+1}.")
 
 def validate_commit_message(message):
     """Validate commit message format."""
@@ -831,6 +866,74 @@ def clear_session_state():
         except Exception:
             pass
 
+def show_startup_banner():
+    """Display a clear startup banner with project context."""
+    print(f"\n{COLOR_MAGENTA}{COLOR_BOLD}{'='*60}{COLOR_RESET}")
+    print(f"{COLOR_MAGENTA}{COLOR_BOLD}  CommitGen - AI-Powered Git Commit Generator{COLOR_RESET}")
+    print(f"{COLOR_MAGENTA}{COLOR_BOLD}{'='*60}{COLOR_RESET}\n")
+
+def show_folder_structure(startpath, max_depth=3, max_files_per_dir=10):
+    """Display a clean tree view of the project structure."""
+    ignored_dirs = {'.git', '__pycache__', 'node_modules', '.venv', 'venv', 
+                    'env', '.idea', '.vscode', 'dist', 'build', '.next'}
+    
+    total_dirs = 0
+    total_files = 0
+    
+    # First, collect all visible items at root level
+    root_items = []
+    try:
+        for item in sorted(os.listdir(startpath)):
+            if item in ignored_dirs or item.startswith('.'):
+                continue
+            item_path = os.path.join(startpath, item)
+            root_items.append((item, os.path.isdir(item_path)))
+    except Exception:
+        pass
+    
+    if not root_items and not any(True for _ in os.walk(startpath)):
+        print("  (empty directory)")
+        return
+
+    # Print root files first
+    for i, (name, is_dir) in enumerate(root_items):
+        if not is_dir:
+            connector = '├── ' if i < len(root_items) - 1 else '└── '
+            print(f"{connector}📄 {name}")
+            total_files += 1
+    
+    # Then walk directories
+    for root, dirs, files in os.walk(startpath):
+        dirs[:] = [d for d in dirs if d not in ignored_dirs and not d.startswith('.')]
+        dirs.sort()
+        
+        depth = root.replace(startpath, '').count(os.sep)
+        if depth >= max_depth:
+            continue
+        
+        if root != startpath:
+            indent = '│   ' * (depth - 1) + '├── '
+            subdir = os.path.basename(root)
+            print(f"{indent}📁 {COLOR_CYAN}{subdir}/{COLOR_RESET}")
+            total_dirs += 1
+            
+            sub_indent = '│   ' * depth
+            visible_files = [f for f in sorted(files) if not f.startswith('.')]
+            total_files += len(visible_files)
+            
+            for i, f in enumerate(visible_files):
+                if i >= max_files_per_dir:
+                    remaining = len(visible_files) - max_files_per_dir
+                    print(f"{sub_indent}└── ... ({remaining} more files)")
+                    break
+                connector = '└── ' if i == len(visible_files) - 1 or i == max_files_per_dir - 1 else '├── '
+                print(f"{sub_indent}{connector}📄 {f}")
+    
+    if total_dirs > 0 or total_files > 0:
+        print(f"\n  {COLOR_BOLD}Summary:{COLOR_RESET} {total_dirs} directories, {total_files} files")
+    else:
+        print("  (empty repository)")
+
 def main():
     load_dotenv()
     check_dependencies()
@@ -853,6 +956,23 @@ def main():
     model = os.getenv("GEMINI_MODEL", config["model"])
     MAX_DIFF_SIZE = config["max_diff_length"]
 
+    show_startup_banner()
+    
+    # 1. Print Google Gemini model name
+    print_info(f"🤖 AI Model: {COLOR_GREEN}Google Gemini - {model}{COLOR_RESET}")
+    
+    # 3. Print folder name
+    folder_name = os.path.basename(os.getcwd())
+    print_info(f"📁 Project: {COLOR_GREEN}{folder_name}{COLOR_RESET}")
+    
+    # 2. Show folder structure
+    print_info("📂 Repository Structure:")
+    show_folder_structure(".")
+    print()  # Extra newline for spacing
+
+    # 4. Print Configuration Summary
+    print_info(f"Configuration: diff limit={MAX_DIFF_SIZE//1000}K chars, default bump={config.get('default_bump', 'patch')}")
+
     # Session recovery
     saved_state = load_session_state()
     if saved_state and NON_INTERACTIVE:
@@ -870,6 +990,7 @@ def main():
             staged = saved_state.get('staged', [])
             curr_version = saved_state.get('curr_version', '0.0.0')
             commit_mode = saved_state.get('commit_mode', 'new')
+            prompt_text = saved_state.get('prompt_text', '')
             user_context = ""  # not available in resumed session
             diff = "(Diff not available — resumed from saved session)"
             print_info(f"Resumed. Staged: {staged}")
@@ -1079,7 +1200,8 @@ Git Diff:
             'bump_choice': config["default_bump"],
             'staged': staged,
             'curr_version': curr_version,
-            'commit_mode': commit_mode
+            'commit_mode': commit_mode,
+            'prompt_text': prompt_text if 'prompt_text' in locals() else ''
         })
     else:
         # Resumed from saved session
@@ -1093,17 +1215,26 @@ Git Diff:
     # 7. Interactive Review Loop
     bump_choice = config.get("default_bump", "patch") if not saved_state else saved_state.get('bump_choice', 'patch')
 
-    # Guard: ensure user_context and diff are always defined (resume path may skip them)
+    # Guard: ensure user_context, diff, and prompt_text are always defined (resume path may skip them)
     if 'user_context' not in dir() and 'user_context' not in locals():
         user_context = ""
     if 'diff' not in dir() and 'diff' not in locals():
         diff = "(Diff not available — resumed from saved session)"
+    if 'prompt_text' not in dir() and 'prompt_text' not in locals():
+        prompt_text = ""
 
     # Try to extract version from user context
     ver_match = re.search(r'\b(v?\d+\.\d+\.\d+(?:-[a-zA-Z0-9\.]+)?)\b', user_context)
     if ver_match:
         bump_choice = f"custom:{ver_match.group(1)}"
         print_info(f"Auto-detected version from context: {ver_match.group(1)}")
+    
+    # Summary of what will be committed before the review loop
+    if commit_mode == 'new':
+        bump_preview = increment_version(curr_version, bump_choice) if bump_choice != "none" else curr_version
+        print_info(f"Preparing commit: {curr_version} → {COLOR_GREEN}{bump_preview}{COLOR_RESET} ({bump_choice} bump)")
+        print_info(f"Files to be committed: {len(staged)}")
+        print_info(f"Commit mode: New commit with {'version tag' if bump_choice != 'none' else 'no version bump'}")
     
     while True:
         if commit_mode == 'new':
@@ -1156,12 +1287,14 @@ Git Diff:
         print(f"  {COLOR_BOLD}c{COLOR_RESET}) Commit as proposed")
         print(f"  {COLOR_BOLD}e{COLOR_RESET}) Edit summary and description")
         if commit_mode == 'new':
+            print(f"  {COLOR_BOLD}g{COLOR_RESET}) Regenerate commit message with AI")
+            print(f"  {COLOR_BOLD}h{COLOR_RESET}) View version history")
             print(f"  {COLOR_BOLD}v{COLOR_RESET}) Change version bump category (patch/minor/major/none)")
         print(f"  {COLOR_BOLD}d{COLOR_RESET}) View detailed diff")
         print(f"  {COLOR_BOLD}s{COLOR_RESET}) Spell check commit message")
         print(f"  {COLOR_BOLD}x{COLOR_RESET}) Cancel and exit")
 
-        action = input(f"\nSelect option [c/e/{'v/' if commit_mode == 'new' else ''}d/s/x]: ").strip().lower()
+        action = input(f"\nSelect option [c/e/{'g/h/v/' if commit_mode == 'new' else ''}d/s/x]: ").strip().lower()
 
         if action == "c":
             break
@@ -1206,8 +1339,53 @@ Git Diff:
             
             if desc_lines:
                 description = "\n".join(desc_lines)
+        elif action == "h" and commit_mode == 'new':
+            # Show git tag history with dates
+            tags_with_dates = run_git_cmd(["tag", "-l", "--sort=-v:refname", "--format=%(refname:short)|%(creatordate:short)"])
+            if tags_with_dates:
+                print_info("Version History (git tags):")
+                tag_lines = tags_with_dates.split('\n')[:15]
+                for line in tag_lines:
+                    if not line.strip():
+                        continue
+                    parts = line.split('|', 1)
+                    tag = parts[0].strip()
+                    date = parts[1].strip() if len(parts) > 1 else "unknown"
+                    print(f"  {COLOR_GREEN}{tag}{COLOR_RESET} ({date})")
+                if len(tags_with_dates.split('\n')) > 15:
+                    print(f"  ... and more")
+            else:
+                print_info("No version tags found.")
+            input("\nPress Enter to continue...")
+            continue
+        elif action == "g" and commit_mode == 'new':
+            if not prompt_text:
+                print_warn("Cannot regenerate - original prompt not available (session resumed).")
+                continue
+            print_info("Regenerating commit message...")
+            try:
+                ai_res = call_gemini_api(api_key, model, prompt_text)
+                summary = ai_res.get("summary", "").strip()
+                description = ai_res.get("description", "").strip()
+                print_success("New commit message generated!")
+            except Exception as e:
+                print_error(f"Regeneration failed: {e}")
+            continue
         elif action == "v" and commit_mode == 'new':
-            v_bump = input("Select bump category (p=patch, m=minor, j=major, n=none, c=custom) [p]: ").strip().lower()
+            # Show all bump options with previews
+            print(f"\n{COLOR_CYAN}Current version: {curr_version}{COLOR_RESET}")
+            
+            patch_ver = increment_version(curr_version, "patch")
+            minor_ver = increment_version(curr_version, "minor")
+            major_ver = increment_version(curr_version, "major")
+            
+            print(f"  {COLOR_BOLD}p{COLOR_RESET}) 🔧 Patch → {COLOR_GREEN}{patch_ver}{COLOR_RESET}")
+            print(f"  {COLOR_BOLD}m{COLOR_RESET}) ✨ Minor → {COLOR_GREEN}{minor_ver}{COLOR_RESET}")
+            print(f"  {COLOR_BOLD}j{COLOR_RESET}) 🚀 Major → {COLOR_GREEN}{major_ver}{COLOR_RESET}")
+            print(f"  {COLOR_BOLD}n{COLOR_RESET}) ⏸️  None  → {COLOR_GREEN}{curr_version}{COLOR_RESET} (keep current)")
+            print(f"  {COLOR_BOLD}c{COLOR_RESET}) ✏️  Custom version")
+            
+            v_bump = input("\nSelect bump type [p/m/j/n/c]: ").strip().lower()
             if v_bump == 'm':
                 bump_choice = "minor"
             elif v_bump == 'j':
