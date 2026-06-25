@@ -157,7 +157,8 @@ Create a `.commitgenrc` JSON file in your repo (or `~/.commitgenrc` globally) to
   "default_bump": "minor",
   "max_diff_length": 20000,
   "auto_push": false,
-  "model": "gemini-3.1-flash-lite"
+  "model": "gemini-3.1-flash-lite",
+  "auto_tag": false
 }
 ```
 
@@ -172,6 +173,7 @@ Create a `.commitgenrc` JSON file in your repo (or `~/.commitgenrc` globally) to
 - `max_diff_length`: Maximum diff size in characters (default: 20000)
 - `auto_push`: Automatically push after commit (default: false)
 - `model`: Gemini model to use (default: `gemini-3.1-flash-lite`)
+- `auto_tag`: Automatically create/move git tags without confirmation prompt (default: `false` for safety)
 
 ## Windows Right-Click Context Menu Integration
 

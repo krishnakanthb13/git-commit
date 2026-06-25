@@ -109,7 +109,7 @@ The tool supports three commit modes for flexible history management:
 - Version bump option hidden in review screen for amend modes
 - AI prompt includes amend-specific context with original commit message
 - Version prefix added to commit message for all modes (prevents duplication)
-- **Tag relocation**: Automatically detects if the commit being amended has any associated Git tags; if found, it relocates all of them locally (`git tag -f <tag_name>`) and force-pushes them to remote when the user pushes the commit.
+- **Tag relocation**: Automatically detects if the commit being amended has any associated Git tags; if found, it prompts the user before relocating them locally (`git tag -f <tag_name>`) and force-pushes them to remote (respects `auto_tag` settings).
 
 ### Configuration Details
 
@@ -119,7 +119,8 @@ The tool supports three commit modes for flexible history management:
     "default_bump": "patch",
     "max_diff_length": 20000,
     "auto_push": False,
-    "model": "gemini-3.1-flash-lite"  # Updated from gemini-2.0-flash-lite
+    "model": "gemini-3.1-flash-lite",
+    "auto_tag": False  # Set to True to skip the tagging confirmation prompt
 }
 ```
 

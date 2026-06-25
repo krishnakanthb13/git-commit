@@ -791,7 +791,8 @@ def load_config():
         "default_bump": "patch",
         "max_diff_length": 20000,
         "auto_push": False,
-        "model": "gemini-3.1-flash-lite"
+        "model": "gemini-3.1-flash-lite",
+        "auto_tag": False  # Set to True to skip the tagging confirmation prompt
     }
     for path in [".commitgenrc", os.path.expanduser("~/.commitgenrc")]:
         if os.path.exists(path):
@@ -1486,12 +1487,20 @@ Git Diff:
             subprocess.run(["git", "commit", "--amend", "-m", full_commit_msg], check=True)
             print_success("Last commit amended successfully!")
             
-            # If the original commit was tagged, move the tags to the new amended commit
+            # If the original commit was tagged, ask before moving the tags
             if amended_tags:
-                print_info(f"Original commit had tags: {', '.join(amended_tags)}. Moving tags to amended commit...")
-                for tag in amended_tags:
-                    subprocess.run(["git", "tag", "-f", tag], check=True)
-                print_success(f"Tags moved to amended commit locally.")
+                print_info(f"Original commit had tags: {', '.join(amended_tags)}")
+                auto_tag = config.get("auto_tag", False)
+                if auto_tag:
+                    move_tags = 'y'
+                else:
+                    move_tags = input(f"{c(COLOR_CYAN)}Move these tags to the amended commit? (y/n) [y]:{c(COLOR_RESET)} ").strip().lower()
+                if move_tags != 'n':  # Default to yes if user just presses Enter
+                    for tag in amended_tags:
+                        subprocess.run(["git", "tag", "-f", tag], check=True)
+                    print_success(f"Tags moved to amended commit locally.")
+                else:
+                    print_info("Tags left on original commit. You may need to handle them manually.")
         except subprocess.CalledProcessError as e:
             print_error(f"Amend failed: {e}")
             sys.exit(1)
@@ -1500,7 +1509,15 @@ Git Diff:
         if final_version and bump_choice != "none":
             # Tag version
             tag_name = f"v{final_version.lstrip('vV')}"
-            print_info(f"Tagging commit as {tag_name}...")
+            
+            # Ask for user approval before tagging (unless auto_tag is enabled in config)
+            auto_tag = config.get("auto_tag", False)
+            if auto_tag:
+                should_tag = True
+            else:
+                print_info(f"About to create tag: {tag_name}")
+                approve_tag = input(f"{c(COLOR_CYAN)}Create git tag '{tag_name}'? (y/n) [y]:{c(COLOR_RESET)} ").strip().lower()
+                should_tag = approve_tag != 'n'  # Default to yes if user just presses Enter
             
             # Update changelog
             update_changelog(final_version, summary, description)
@@ -1508,9 +1525,13 @@ Git Diff:
             commit_args = ["git", "commit", "-m", full_commit_msg]
             try:
                 subprocess.run(commit_args, check=True)
-                # Create tag
-                subprocess.run(["git", "tag", "-a", tag_name, "-m", f"Version {tag_name}"], check=True)
-                print_success(f"Commit created and tagged as {tag_name}!")
+                if should_tag:
+                    # Create tag
+                    subprocess.run(["git", "tag", "-a", tag_name, "-m", f"Version {tag_name}"], check=True)
+                    print_success(f"Commit created and tagged as {tag_name}!")
+                else:
+                    print_success(f"Commit created without tag!")
+                    print_info(f"You can tag manually later with: git tag -a {tag_name} -m 'Version {tag_name}'")
             except subprocess.CalledProcessError as e:
                 print_error(f"Commit failed: {e}")
                 sys.exit(1)

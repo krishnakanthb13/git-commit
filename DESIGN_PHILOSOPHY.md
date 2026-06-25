@@ -22,7 +22,7 @@ This document outlines the core architectural and design decisions behind the AI
 
 ## 4. Automatic Version Alignment
 - **Motivation**: Semantic versioning is often neglected or updated out of sync with commits.
-- **Implementation**: Binds version tracking directly into the commit pipeline, enabling simultaneous source file version increments (`package.json`, `pyproject.toml`), `CHANGELOG.md` generation, and git tags right alongside the commit command. Additionally, it checks git commit messages for version strings, resolves version conflicts across all sources interactively, and detects if the proposed version is already tagged locally to prevent collision.
+- **Implementation**: Binds version tracking directly into the commit pipeline, enabling simultaneous source file version increments (`package.json`, `pyproject.toml`), `CHANGELOG.md` generation, and git tags right alongside the commit command. Additionally, it checks git commit messages for version strings, resolves version conflicts across all sources interactively, detects if the proposed version is already tagged locally to prevent collision, and prompts the user for approval before creating or relocating git tags (with an optional `auto_tag: true` config setting to bypass the prompts).
 
 ## 5. Automated Workflow Lifecycle
 - **Motivation**: Committing is only step one of modern development. A professional tool should support the full lifecycle up to deployment.
