@@ -1554,11 +1554,11 @@ Git Diff:
         # Check if we have a remote to push to
         remotes = run_git_cmd(["remote"])
         if remotes:
-            push_choice = input(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}Push to remote? (y/n) [n]:{c(COLOR_RESET)} ").strip().lower()
-            if push_choice == "y":
+            push_choice = input(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}Push to remote? (y/n) [y]:{c(COLOR_RESET)} ").strip().lower()
+            if push_choice != "n":
                 if commit_mode in ['amend', 'fresh_amend']:
-                    force_push = input(f"{c(COLOR_YELLOW)}This is an amended commit. Force push? (y/n) [n]:{c(COLOR_RESET)} ").strip().lower()
-                    if force_push == 'y':
+                    force_push = input(f"{c(COLOR_YELLOW)}This is an amended commit. Force push? (y/n) [y]:{c(COLOR_RESET)} ").strip().lower()
+                    if force_push != 'n':
                         push_args = ["git", "push", "--force-with-lease"]
                     else:
                         print_info("Skipped push. Run 'git push --force-with-lease' manually when ready.")

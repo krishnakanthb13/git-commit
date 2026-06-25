@@ -135,7 +135,7 @@ The tool supports three commit modes for flexible history management:
 - `NO_COLOR`: Disable colored output (optional)
 
 **Entrypoint**
-- `main()`: Full orchestration — dependency check → flag parsing (`--dry-run`, `--non-interactive`) → session recovery → staging → **commit mode selection (new/amend/fresh amend)** → version detection → pre-commit hooks → AI call (with amend-specific context) → interactive review (with validation warnings) → commit/tag/amend → push (with force push option for amended commits) → PR creation → CI monitor → session clear.
+- `main()`: Full orchestration — dependency check → flag parsing (`--dry-run`, `--non-interactive`) → session recovery → staging → **commit mode selection (new/amend/fresh amend)** → version detection → pre-commit hooks → AI call (with amend-specific context) → interactive review (with validation warnings) → commit/tag/amend → push (prompts default to yes, with force push option for amended commits) → PR creation → CI monitor → session clear.
 
 **Command-line flags:**
 - `--dry-run`: Preview commit without making changes

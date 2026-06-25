@@ -134,7 +134,7 @@ python git_commit.py --non-interactive  # headless/CI mode (no prompts)
 - `x`: Cancel and exit
 
 **Post-Commit Actions**:
-- Push to remote (with automatic force push prompt for amended commits)
+- Push to remote (defaults to yes; includes automatic force push prompt for amended commits)
 - Create Pull Request (if on a branch)
 - Monitor CI pipeline (if `gh` CLI is available)
 
