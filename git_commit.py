@@ -1574,7 +1574,7 @@ Git Diff:
                     print_info("Pushing to remote...")
                     try:
                         subprocess.run(push_args, check=True)
-                        if commit_mode == 'new' and final_version and bump_choice != "none" and 'tag_name' in locals():
+                        if commit_mode == 'new' and final_version and bump_choice != "none" and 'tag_name' in locals() and should_tag:
                             # Check if tag already exists on remote
                             if check_remote_tag(tag_name):
                                 overwrite_remote = input(f"\n{c(COLOR_YELLOW)}Tag '{tag_name}' already exists on remote. Force push/overwrite? (y/n) [n]:{c(COLOR_RESET)} ").strip().lower()
@@ -1638,7 +1638,7 @@ Git Diff:
                         subprocess.run(["gh", "repo", "create", repo_name, "--private", "--source=.", "--remote=origin", "--push"], check=True)
                         print_success("Repository created and pushed successfully!")
                         # Push tag if present
-                        if commit_mode == 'new' and final_version and bump_choice != "none" and 'tag_name' in locals():
+                        if commit_mode == 'new' and final_version and bump_choice != "none" and 'tag_name' in locals() and should_tag:
                             subprocess.run(["git", "push", "origin", tag_name], check=True)
                             print_success(f"Tag '{tag_name}' pushed to remote.")
                         monitor_ci()
@@ -1655,7 +1655,7 @@ Git Diff:
                         subprocess.run(["gh", "repo", "create", repo_name, "--public", "--source=.", "--remote=origin", "--push"], check=True)
                         print_success("Repository created and pushed successfully!")
                         # Push tag if present
-                        if commit_mode == 'new' and final_version and bump_choice != "none" and 'tag_name' in locals():
+                        if commit_mode == 'new' and final_version and bump_choice != "none" and 'tag_name' in locals() and should_tag:
                             subprocess.run(["git", "push", "origin", tag_name], check=True)
                             print_success(f"Tag '{tag_name}' pushed to remote.")
                         monitor_ci()
