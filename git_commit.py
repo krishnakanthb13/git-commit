@@ -514,10 +514,11 @@ def prompt_stage_files(staged, unstaged, untracked):
         
         print(f"  {c(COLOR_BOLD)}a{c(COLOR_RESET)}) Stage all files")
         print(f"  {c(COLOR_BOLD)}u{c(COLOR_RESET)}) Unstage files (select from staged)")
+        print(f"  {c(COLOR_BOLD)}p{c(COLOR_RESET)}) Proceed with just the staged files")
         print(f"  {c(COLOR_BOLD)}q{c(COLOR_RESET)}) Quit")
         print(f"\n  {c(COLOR_CYAN)}(Already-staged files shown in green){c(COLOR_RESET)}")
 
-        choice = input("\nEnter choice(s) (comma-separated numbers, 'a', 'u', or 'q'): ").strip().lower()
+        choice = input("\nEnter choice(s) (comma-separated numbers, 'a', 'u', 'p', or 'q'): ").strip().lower()
         if choice == 'q':
             sys.exit(0)
         elif choice == 'a':
@@ -525,6 +526,11 @@ def prompt_stage_files(staged, unstaged, untracked):
                 run_git_cmd(["add", f])
             print_success("Staged all files.")
             return True
+        elif choice == 'p':
+            if staged:
+                return True
+            print_warn("No files are currently staged to commit.")
+            continue
         elif choice == 'u':
             if not staged:
                 print_warn("No staged files to unstage.")
@@ -1262,8 +1268,7 @@ Git Diff:
         display_summary = summary
         # Add version prefix for ALL modes (but prevent duplication)
         if proposed_version:
-            clean_proposed = proposed_version.lstrip("vV")
-            version_prefix = f"v{clean_proposed} - "
+            version_prefix = f"{proposed_version} - "
             
             # Check if version prefix already exists (avoid duplication)
             if not display_summary.startswith(version_prefix):
@@ -1426,8 +1431,7 @@ Git Diff:
         final_version = None
 
     if final_version:
-        clean_final = final_version.lstrip("vV")
-        version_prefix = f"v{clean_final} - "
+        version_prefix = f"{final_version} - "
         
         # Only add version prefix if not already present
         if not summary.startswith(version_prefix):
@@ -1615,7 +1619,52 @@ Git Diff:
             else:
                 print_info("Skipped push. Run 'git push' manually when ready.")
         else:
-            print_info("No git remote configured. Skipped push.")
+            if not NON_INTERACTIVE and shutil.which("gh"):
+                print_info("No git remote configured.")
+                print(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}Create a new GitHub repository for this project?{c(COLOR_RESET)}")
+                print(f"  {c(COLOR_BOLD)}1{c(COLOR_RESET)}) Create a PRIVATE GitHub repository")
+                print(f"  {c(COLOR_BOLD)}2{c(COLOR_RESET)}) Create a PUBLIC GitHub repository")
+                print(f"  {c(COLOR_BOLD)}3{c(COLOR_RESET)}) Skip / Do nothing")
+                
+                choice = input(f"\n{c(COLOR_CYAN)}Select option [1/2/3] [3]:{c(COLOR_RESET)} ").strip()
+                if choice in ['1', 'private']:
+                    repo_name = os.path.basename(os.getcwd())
+                    custom_name = input(f"Repository name [{repo_name}]: ").strip()
+                    if custom_name:
+                        repo_name = custom_name
+                    
+                    print_info(f"Creating private repository '{repo_name}' via GitHub CLI...")
+                    try:
+                        subprocess.run(["gh", "repo", "create", repo_name, "--private", "--source=.", "--remote=origin", "--push"], check=True)
+                        print_success("Repository created and pushed successfully!")
+                        # Push tag if present
+                        if commit_mode == 'new' and final_version and bump_choice != "none" and 'tag_name' in locals():
+                            subprocess.run(["git", "push", "origin", tag_name], check=True)
+                            print_success(f"Tag '{tag_name}' pushed to remote.")
+                        monitor_ci()
+                    except subprocess.CalledProcessError as e:
+                        print_error(f"Failed to create/push repository: {e}")
+                elif choice in ['2', 'public']:
+                    repo_name = os.path.basename(os.getcwd())
+                    custom_name = input(f"Repository name [{repo_name}]: ").strip()
+                    if custom_name:
+                        repo_name = custom_name
+                    
+                    print_info(f"Creating public repository '{repo_name}' via GitHub CLI...")
+                    try:
+                        subprocess.run(["gh", "repo", "create", repo_name, "--public", "--source=.", "--remote=origin", "--push"], check=True)
+                        print_success("Repository created and pushed successfully!")
+                        # Push tag if present
+                        if commit_mode == 'new' and final_version and bump_choice != "none" and 'tag_name' in locals():
+                            subprocess.run(["git", "push", "origin", tag_name], check=True)
+                            print_success(f"Tag '{tag_name}' pushed to remote.")
+                        monitor_ci()
+                    except subprocess.CalledProcessError as e:
+                        print_error(f"Failed to create/push repository: {e}")
+                else:
+                    print_info("Skipped remote repository creation.")
+            else:
+                print_info("No git remote configured. Skipped push.")
     except subprocess.CalledProcessError as e:
         print_error(f"Failed to complete Git actions: {e}")
         input("\nPress Enter to exit...")

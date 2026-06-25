@@ -41,6 +41,7 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 21. 🔤 **Spell checking** integration (via aspell)
 22. 🔄 **Unstage files** during staging with interactive picker
 23. 📝 **Loads commit templates** from `.git/COMMIT_TEMPLATE` or `.github/PULL_REQUEST_TEMPLATE.md`
+24. 📦 **GitHub Repository Creation**: Auto-prompts to create a public/private repository on GitHub and push code/tags when no git remote is configured.
 
 **A comprehensive Git commit tool** that handles the entire workflow from staging to CI monitoring with excellent error handling and user experience.
 
@@ -65,17 +66,18 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 - 🔤 **Spell Checking**: Optional spell-check via system `aspell` command (press `s` in review screen).
 - 🛠️ **Interactive UI**:
   - **Commit Mode Selection**: Choose between new commit, amend, or fresh amend at startup
-  - Stage, unstage (`u`), and review files with an iterative picker loop (preventing stack overflows and supporting pre-staged files)
+  - Stage, unstage (`u`), and proceed (`p`) with already-staged files using an iterative picker loop (preventing stack overflows and supporting pre-staged files)
   - Review, edit (`e`), spell-check (`s`), or preview diffs (`d`) before committing
   - Version bump options (`v`) only shown for new commits (amend mode skips version bump by default)
   - Monitor CI pipelines live directly after pushing
   - Validation warnings (including version tag collision warning) displayed in review screen
+  - **GitHub Repository Creation**: Interactively prompts to create a public/private GitHub repository if no remote is configured (requires `gh` CLI).
 
 ## Code Base
 
 ```
 git-commit/
-├── git_commit.py              ← main tool (1,611 lines)
+├── git_commit.py              ← main tool (1,667 lines)
 ├── register.py                ← install/uninstall context menu (winreg)
 ├── .env.template              ← copy to .env and add your API key
 ├── .env                       ← local configuration (contains API key, gitignored)
@@ -121,7 +123,7 @@ python git_commit.py --non-interactive  # headless/CI mode (no prompts)
 - `a`: AMEND the last commit - updates message and adds staged changes (no version bump)
 - `f`: FRESH amend - replaces last commit message completely with new AI suggestion (no version bump)
 
-**Staging**: Choose which files to stage (`a` = all, numbers, or `u` to unstage). Already-staged files shown in green.
+**Staging**: Choose which files to stage (`a` = all, numbers, `u` to unstage, or `p` to proceed with just the staged files). Already-staged files shown in green.
 
 **Context**: Provide optional notes to steer the AI. You can also specify version in context (e.g., "v1.2.3") for auto-detection.
 
@@ -134,7 +136,7 @@ python git_commit.py --non-interactive  # headless/CI mode (no prompts)
 - `x`: Cancel and exit
 
 **Post-Commit Actions**:
-- Push to remote (defaults to yes; includes automatic force push prompt for amended commits)
+- Push to remote (defaults to yes; includes automatic force push prompt for amended commits, or repository creation options if no remote exists)
 - Create Pull Request (if on a branch)
 - Monitor CI pipeline (if `gh` CLI is available)
 

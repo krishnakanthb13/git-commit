@@ -47,7 +47,7 @@ This script implements the main execution loop. It is designed to be fully self-
 **File & staging**
 - `get_git_files()`: Parses `git status --porcelain -z` (null-terminated) into staged/unstaged/untracked lists.
 - `prompt_amend_or_new()`: Interactive prompt to select commit mode - new (`n`), amend (`a`), or fresh amend (`f`). Returns the selected mode.
-- `prompt_stage_files(staged, unstaged, untracked)`: Interactive picker with stage (`a`, numbers), unstage (`u`), and quit (`q`) options. Uses an iterative while-loop to prevent recursive stack overflows, and correctly handles empty inputs to accept pre-staged files. Already-staged files shown in green.
+- `prompt_stage_files(staged, unstaged, untracked)`: Interactive picker with stage (`a`, numbers), unstage (`u`), proceed (`p` to proceed with staged), and quit (`q`) options. Uses an iterative while-loop to prevent recursive stack overflows, and correctly handles empty inputs and the `p` choice to accept pre-staged files. Already-staged files shown in green.
 - `show_commit_stats(staged)`: Prints `git diff --stat` and a per-extension file count.
 - `is_binary_file(filepath)`: Reads first 1 KB for null bytes to identify binary files, with checks for file existence to handle deleted files gracefully.
 
@@ -110,6 +110,8 @@ The tool supports three commit modes for flexible history management:
 - AI prompt includes amend-specific context with original commit message
 - Version prefix added to commit message for all modes (prevents duplication)
 - **Tag relocation**: Automatically detects if the commit being amended has any associated Git tags; if found, it prompts the user before relocating them locally (`git tag -f <tag_name>`) and force-pushes them to remote (respects `auto_tag` settings).
+- **Tag Approval**: Prompts user for confirmation before tagging new commits or moving tags on amend (configurable/bypassable via `auto_tag` settings).
+- **Format Preservation**: Version prefix (e.g. `1.2.3 - ...` vs `v1.2.3 - ...`) matches the original format of the base version instead of always forcing a leading `v`.
 
 ### Configuration Details
 
@@ -135,7 +137,7 @@ The tool supports three commit modes for flexible history management:
 - `NO_COLOR`: Disable colored output (optional)
 
 **Entrypoint**
-- `main()`: Full orchestration — dependency check → flag parsing (`--dry-run`, `--non-interactive`) → session recovery → staging → **commit mode selection (new/amend/fresh amend)** → version detection → pre-commit hooks → AI call (with amend-specific context) → interactive review (with validation warnings) → commit/tag/amend → push (prompts default to yes, with force push option for amended commits) → PR creation → CI monitor → session clear.
+- `main()`: Full orchestration — dependency check → flag parsing (`--dry-run`, `--non-interactive`) → session recovery → staging (with optional proceed-as-staged) → **commit mode selection (new/amend/fresh amend)** → version detection → pre-commit hooks → AI call (with amend-specific context) → interactive review (with validation warnings) → commit/tag/amend → push (prompts default to yes, with force push option for amended commits, or triggers interactive GitHub repository creation via `gh repo create` if no remote is configured) → PR creation → CI monitor → session clear.
 
 **Command-line flags:**
 - `--dry-run`: Preview commit without making changes

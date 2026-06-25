@@ -22,7 +22,7 @@ This document outlines the core architectural and design decisions behind the AI
 
 ## 4. Automatic Version Alignment
 - **Motivation**: Semantic versioning is often neglected or updated out of sync with commits.
-- **Implementation**: Binds version tracking directly into the commit pipeline, enabling simultaneous source file version increments (`package.json`, `pyproject.toml`), `CHANGELOG.md` generation, and git tags right alongside the commit command. Additionally, it checks git commit messages for version strings, resolves version conflicts across all sources interactively, detects if the proposed version is already tagged locally to prevent collision, and prompts the user for approval before creating or relocating git tags (with an optional `auto_tag: true` config setting to bypass the prompts).
+- **Implementation**: Binds version tracking directly into the commit pipeline, enabling simultaneous source file version increments (`package.json`, `pyproject.toml`), `CHANGELOG.md` generation, and git tags right alongside the commit command. Additionally, it checks git commit messages for version strings, resolves version conflicts across all sources interactively, detects if the proposed version is already tagged locally to prevent collision, prompts the user for approval before creating or relocating git tags (with an optional `auto_tag: true` config setting to bypass the prompts), and preserves the original formatting of the version string (preserving the `v` prefix or lack thereof).
 
 ## 5. Automated Workflow Lifecycle
 - **Motivation**: Committing is only step one of modern development. A professional tool should support the full lifecycle up to deployment.
@@ -71,11 +71,12 @@ This document outlines the core architectural and design decisions behind the AI
 - **Implementation**: 
   - Automatic version updates in project files (package.json, pyproject.toml)
   - CHANGELOG.md generation with version, date, and changes
-  - Git tag creation with version prefix
+  - Git tag creation preserving original version formatting
   - Pull Request creation via GitHub CLI (`gh pr create`)
   - CI pipeline monitoring with live streaming (`gh run watch`)
+  - Automatic GitHub Repository Creation (public or private) when no remote is configured
 - Force-push detection and warnings for amended commits
-  - Version prefix added to commit messages for all modes (e.g., `v1.2.3 - feat: add feature`)
+  - Version prefix added to commit messages for all modes (e.g., `v1.2.3 - feat: add feature` or `1.2.3 - feat: add feature`)
 
 ## 13. Terminal Resilience & Interface Stability
 - **Motivation**: Command-line interfaces should never crash or hang indefinitely due to recursive call stack limits, network timeouts, or stdout redirection errors.
