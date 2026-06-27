@@ -898,59 +898,63 @@ def show_startup_banner():
 def show_folder_structure(startpath, max_depth=3, max_files_per_dir=10):
     """Display a clean tree view of the project structure."""
     ignored_dirs = {'.git', '__pycache__', 'node_modules', '.venv', 'venv', 
-                    'env', '.idea', '.vscode', 'dist', 'build', '.next'}
+                    'env', '.idea', '.vscode', 'dist', 'build', '.next',
+                    '.pytest_cache', '.mypy_cache', '.tox', 'egg-info', '.eggs'}
     
     total_dirs = 0
     total_files = 0
     
-    # First, collect all visible items at root level
-    root_items = []
-    try:
-        for item in sorted(os.listdir(startpath)):
+    def tree(dir_path, prefix="", depth=0):
+        nonlocal total_dirs, total_files
+        
+        if depth >= max_depth:
+            print(f"{prefix}└── ... (max depth reached)")
+            return
+        
+        try:
+            contents = sorted(os.listdir(dir_path))
+        except PermissionError:
+            print(f"{prefix}└── [Permission Denied]")
+            return
+        except Exception:
+            return
+        
+        # Separate directories and files
+        dirs = []
+        files = []
+        for item in contents:
             if item in ignored_dirs or item.startswith('.'):
                 continue
-            item_path = os.path.join(startpath, item)
-            root_items.append((item, os.path.isdir(item_path)))
-    except Exception:
-        pass
-    
-    if not root_items:
-        print("  (empty directory)")
-        return
-
-    # Print root files first
-    for i, (name, is_dir) in enumerate(root_items):
-        if not is_dir:
-            connector = '├── ' if i < len(root_items) - 1 else '└── '
-            print(f"{connector}📄 {name}")
+            full_path = os.path.join(dir_path, item)
+            if os.path.isdir(full_path):
+                dirs.append(item)
+            else:
+                files.append(item)
+        
+        # Show files first (up to max_files_per_dir)
+        for i, file in enumerate(files):
+            if i >= max_files_per_dir:
+                remaining = len(files) - max_files_per_dir
+                print(f"{prefix}├── ... ({remaining} more files)")
+                break
+            is_last_file = (i == len(files) - 1 or i == max_files_per_dir - 1) and not dirs
+            connector = "└── " if is_last_file else "├── "
+            print(f"{prefix}{connector}📄 {file}")
             total_files += 1
-    
-    # Then walk directories
-    for root, dirs, files in os.walk(startpath):
-        dirs[:] = [d for d in dirs if d not in ignored_dirs and not d.startswith('.')]
-        dirs.sort()
         
-        depth = root.replace(startpath, '').count(os.sep)
-        if depth >= max_depth:
-            continue
-        
-        if root != startpath:
-            indent = '│   ' * (depth - 1) + '├── '
-            subdir = os.path.basename(root)
-            print(f"{indent}📁 {COLOR_CYAN}{subdir}/{COLOR_RESET}")
+        # Then show directories
+        for i, dir_name in enumerate(dirs):
             total_dirs += 1
+            is_last = (i == len(dirs) - 1)
+            connector = "└── " if is_last else "├── "
+            print(f"{prefix}{connector}📁 {c(COLOR_CYAN)}{dir_name}/{c(COLOR_RESET)}")
             
-            sub_indent = '│   ' * depth
-            visible_files = [f for f in sorted(files) if not f.startswith('.')]
-            total_files += len(visible_files)
-            
-            for i, f in enumerate(visible_files):
-                if i >= max_files_per_dir:
-                    remaining = len(visible_files) - max_files_per_dir
-                    print(f"{sub_indent}└── ... ({remaining} more files)")
-                    break
-                connector = '└── ' if i == len(visible_files) - 1 or i == max_files_per_dir - 1 else '├── '
-                print(f"{sub_indent}{connector}📄 {f}")
+            # Calculate prefix for children
+            extension = "    " if is_last else "│   "
+            tree(os.path.join(dir_path, dir_name), prefix + extension, depth + 1)
+    
+    # Start from root
+    tree(startpath)
     
     if total_dirs > 0 or total_files > 0:
         print(f"\n  {COLOR_BOLD}Summary:{COLOR_RESET} {total_dirs} directories, {total_files} files")

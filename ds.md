@@ -1,40 +1,40 @@
-Perfect! You've now completed all the improvements for the restart functionality. Let me confirm what's been achieved:
+I see you've pasted the complete updated script with the improved `show_folder_structure` function. This version uses a proper recursive tree traversal that will correctly display all folders and files in the repository structure.
 
-## ✅ Final State of the Code:
+The key improvements in this version:
 
-### All `sys.exit()` calls have been properly handled:
+1. **Recursive `tree()` function** - Properly maintains hierarchy with correct indentation
+2. **Depth tracking** - Actually respects `max_depth` parameter
+3. **Correct tree connectors** - Uses `├──` for non-last items and `└──` for last items
+4. **Extended ignored directories** - Added `.pytest_cache`, `.mypy_cache`, `.tox`, `egg-info`, `.eggs`
+5. **Permission error handling** - Gracefully handles directories that can't be read
+6. **Empty repository detection** - Shows "(empty repository)" when appropriate
 
-1. **Line ~1660** - Clean working tree: `return False` ✅
-2. **Line ~1675** - User quits file picker: `return False` ✅  
-3. **Line ~1700** - Pre-commit hook failure: `return False` ✅
-4. **Line ~1845** - Cancel during review: `return False` ✅
-5. **Line ~2030** - Dry run complete: `return False` ✅
-6. **Lines ~2060, 2085, 2095** - Git commit/amend failures: `return retry == 'y'` ✅
-7. **Lines ~2305** - Post-commit actions failure: `return True/False` ✅
+The script is now complete and ready to use. Here's a summary of what it does:
 
-### The only remaining `sys.exit()` calls are for truly fatal errors that can't be recovered from by restarting:
+- **Displays project info**: AI model, project name, repository structure
+- **Intelligent versioning**: Detects current version from git tags, commits, or config files
+- **AI-powered commits**: Uses Google Gemini API to generate conventional commit messages
+- **Interactive workflow**: File staging, commit mode selection (new/amend), version bumping
+- **Post-commit actions**: Push, create PRs, monitor CI, update changelog
+- **Session recovery**: Saves state to recover from crashes
+- **Multiple modes**: Interactive, non-interactive (CI), and dry-run
 
-- **Line ~1600** - Missing API key (requires user to fix .env file) - appropriate
-- **Line ~550** - Python version too old (requires reinstallation) - appropriate  
-- **Line ~555** - Git not installed (requires installation) - appropriate
-- **Line ~1680** - No files staged (after staging process, shouldn't normally happen) - debatable but acceptable
+To use it:
+```bash
+# Make executable
+chmod +x commitgen.py
 
-### Restart loop is robust with:
+# Set up API key
+echo 'GEMINI_API_KEY=your_key_here' > .env
 
-- ✅ Clear screen on restart for clean UX
-- ✅ Maximum restart counter (10) to prevent infinite loops
-- ✅ Restart counter increments on both successful restarts and error restarts
-- ✅ Keyboard interrupt (Ctrl+C) is caught and handled gracefully
-- ✅ Unexpected exceptions caught with option to restart
-- ✅ Graceful "Goodbye! 👋" message on final exit
+# Run interactively
+./commitgen.py
 
-### User Flow:
+# Or non-interactively (for CI)
+./commitgen.py --non-interactive
 
-1. **Normal completion**: "Press Enter to exit, or type 'r' to run again" → restart or exit
-2. **User cancels**: Returns to restart prompt
-3. **Git command fails**: "Would you like to restart CommitGen?" → restart or exit
-4. **Unexpected error**: "Would you like to restart?" → restart or exit
-5. **Keyboard interrupt**: Clean exit with goodbye message
-6. **Max restarts hit**: Warning message and clean exit
+# Dry run (preview without committing)
+./commitgen.py --dry-run
+```
 
-The implementation is production-ready and provides an excellent user experience. Users can now make multiple commits in a single session without restarting the script manually, while still having clear exit points when they're done. Great work! 🎉
+The repository structure display should now work correctly, showing all folders and their contents in a clean tree view!
