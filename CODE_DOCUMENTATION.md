@@ -137,7 +137,8 @@ The tool supports three commit modes for flexible history management:
 - `NO_COLOR`: Disable colored output (optional)
 
 **Entrypoint**
-- `main()`: Full orchestration — dependency check → flag parsing (`--dry-run`, `--non-interactive`) → session recovery → staging (with optional proceed-as-staged) → **commit mode selection (new/amend/fresh amend)** → version detection → pre-commit hooks → AI call (with amend-specific context) → interactive review (with validation warnings) → commit/tag/amend → push (prompts default to yes, with force push option for amended commits, or triggers interactive GitHub repository creation via `gh repo create` if no remote is configured) → PR creation → CI monitor → session clear.
+- `main()`: Full orchestration — dependency check → flag parsing (`--dry-run`, `--non-interactive`) → session recovery → staging (with optional proceed-as-staged) → **commit mode selection (new/amend/fresh amend)** → version detection → pre-commit hooks → AI call (with amend-specific context) → interactive review (with validation warnings) → commit/tag/amend → push (prompts default to yes, with force push option for amended commits, or triggers interactive GitHub repository creation via `gh repo create` if no remote is configured) → PR creation → CI monitor → session clear. Returns boolean indicating whether to restart the session.
+- Script runner (`if __name__ == "__main__":`): Wraps `main()` in a bounded while-loop (max 10 restarts) that handles `KeyboardInterrupt` and unexpected exceptions gracefully, offering the user a chance to restart before exiting.
 
 **Command-line flags:**
 - `--dry-run`: Preview commit without making changes

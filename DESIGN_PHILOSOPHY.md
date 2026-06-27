@@ -86,3 +86,4 @@ This document outlines the core architectural and design decisions behind the AI
   - Introduces defensive file-existence guards before opening files for binary checking, preventing errors on deleted files.
   - Implements a centralized conditional ANSI color wrapper (`c()`) to prevent color escape codes from leaking in non-TTY or redirected output environments.
   - Employs robust printing fallbacks to quietly suppress/bypass terminal errors if stdout streams are closed or redirected.
+  - Substitutes abrupt `sys.exit()` calls with graceful boolean returns, wrapped in a top-level execution loop. This enables continuous sessions, allowing users to recover from errors or perform multiple commits without dropping back to the shell, while bounding retries (max 10) to prevent infinite loops.

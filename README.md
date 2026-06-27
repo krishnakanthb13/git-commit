@@ -42,6 +42,7 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 22. 🔄 **Unstage files** during staging with interactive picker
 23. 📝 **Loads commit templates** from `.git/COMMIT_TEMPLATE` or `.github/PULL_REQUEST_TEMPLATE.md`
 24. 📦 **GitHub Repository Creation**: Auto-prompts to create a public/private repository on GitHub and push code/tags when no git remote is configured.
+25. 🔁 **Continuous Sessions**: Prompts to optionally restart the tool after completion or errors, allowing multiple commits in a single run without dropping back to the shell.
 
 **A comprehensive Git commit tool** that handles the entire workflow from staging to CI monitoring with excellent error handling and user experience.
 
@@ -72,6 +73,7 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
   - Monitor CI pipelines live directly after pushing
   - Validation warnings (including version tag collision warning) displayed in review screen
   - **GitHub Repository Creation**: Interactively prompts to create a public/private GitHub repository if no remote is configured (requires `gh` CLI).
+  - **Continuous Session**: Prompts to restart upon success or error, providing a seamless multi-commit experience without abrupt termination.
 
 ## Code Base
 

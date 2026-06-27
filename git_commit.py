@@ -520,7 +520,7 @@ def prompt_stage_files(staged, unstaged, untracked):
 
         choice = input("\nEnter choice(s) (comma-separated numbers, 'a', 'u', 'p', or 'q'): ").strip().lower()
         if choice == 'q':
-            sys.exit(0)
+            return "quit"
         elif choice == 'a':
             for f, _ in all_available:
                 run_git_cmd(["add", f])
@@ -1026,7 +1026,7 @@ def main():
         staged, unstaged, untracked = get_git_files()
         if not staged and not unstaged and not untracked:
             print_success("Nothing to commit, working tree clean.")
-            sys.exit(0)
+            return False
 
         if NON_INTERACTIVE:
             # In CI mode: auto-stage all and proceed
@@ -1034,7 +1034,8 @@ def main():
                 run_git_cmd(["add", f])
             staged, _, _ = get_git_files()
         else:
-            prompt_stage_files(staged, unstaged, untracked)
+            if prompt_stage_files(staged, unstaged, untracked) == "quit":
+                return False
             staged, _, _ = get_git_files()
 
         if not staged:
@@ -1084,7 +1085,7 @@ def main():
         if commit_mode == 'new' or staged:
             if not check_precommit_hooks():
                 print_info("Commit cancelled due to hook failures.")
-                sys.exit(1)
+                return False
 
         # 4. User Input Context
         if NON_INTERACTIVE:
@@ -1321,7 +1322,7 @@ Git Diff:
         elif action == "x":
             print_info("Commit cancelled.")
             clear_session_state()
-            sys.exit(0)
+            return False
         elif action == "d":
             try:
                 subprocess.run(["less", "-R"], input=diff, text=True)
@@ -1456,7 +1457,7 @@ Git Diff:
         print(f"  {full_commit_msg}")
         print_success("Dry run complete — no changes committed.")
         clear_session_state()
-        sys.exit(0)
+        return False
 
     # Apply version changes (only for new commits)
     if commit_mode == 'new' and bump_choice != "none" and final_version:
@@ -1507,7 +1508,8 @@ Git Diff:
                     print_info("Tags left on original commit. You may need to handle them manually.")
         except subprocess.CalledProcessError as e:
             print_error(f"Amend failed: {e}")
-            sys.exit(1)
+            retry = input(f"\n{c(COLOR_CYAN)}Would you like to restart CommitGen? (y/n) [n]: {c(COLOR_RESET)}").strip().lower()
+            return retry == 'y'
     else:
         # Normal new commit flow
         if final_version and bump_choice != "none":
@@ -1538,7 +1540,8 @@ Git Diff:
                     print_info(f"You can tag manually later with: git tag -a {tag_name} -m 'Version {tag_name}'")
             except subprocess.CalledProcessError as e:
                 print_error(f"Commit failed: {e}")
-                sys.exit(1)
+                retry = input(f"\n{c(COLOR_CYAN)}Would you like to restart CommitGen? (y/n) [n]: {c(COLOR_RESET)}").strip().lower()
+                return retry == 'y'
         else:
             commit_args = ["git", "commit", "-m", full_commit_msg]
             try:
@@ -1546,7 +1549,8 @@ Git Diff:
                 print_success("Commit created!")
             except subprocess.CalledProcessError as e:
                 print_error(f"Commit failed: {e}")
-                sys.exit(1)
+                retry = input(f"\n{c(COLOR_CYAN)}Would you like to restart CommitGen? (y/n) [n]: {c(COLOR_RESET)}").strip().lower()
+                return retry == 'y'
 
     # 9. Post-Commit Actions (Push, PR, CI)
     # For amend mode, warn about force push
@@ -1667,15 +1671,45 @@ Git Diff:
                 print_info("No git remote configured. Skipped push.")
     except subprocess.CalledProcessError as e:
         print_error(f"Failed to complete Git actions: {e}")
-        input("\nPress Enter to exit...")
-        sys.exit(1)
+        retry = input(f"\n{c(COLOR_CYAN)}Would you like to restart CommitGen? (y/n) [n]: {c(COLOR_RESET)}").strip().lower()
+        if retry == 'y':
+            return True
+        return False
 
     clear_session_state()
-    input("\nPress Enter to exit...")
+    
+    while True:
+        choice = input(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}Press Enter to exit, or type 'r' to run again: {c(COLOR_RESET)}").strip().lower()
+        if choice == 'r':
+            os.system('cls' if os.name == 'nt' else 'clear')
+            print_info("Restarting CommitGen...\n")
+            return True  # Signal to restart
+        else:
+            return False  # Signal to exit
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\n\nAborted by user.")
-        sys.exit(0)
+    restart_count = 0
+    MAX_RESTARTS = 10
+    
+    while True:
+        if restart_count >= MAX_RESTARTS:
+            print_warn(f"Maximum restarts ({MAX_RESTARTS}) reached. Exiting.")
+            break
+            
+        try:
+            should_restart = main()
+            if not should_restart:
+                break
+            restart_count += 1
+        except KeyboardInterrupt:
+            print("\n\nAborted by user.")
+            break
+        except Exception as e:
+            print_error(f"An unexpected error occurred: {e}")
+            retry = input(f"\n{c(COLOR_CYAN)}Would you like to restart? (y/n) [n]: {c(COLOR_RESET)}").strip().lower()
+            if retry != 'y':
+                break
+            restart_count += 1
+    
+    print("Goodbye! 👋")
+    sys.exit(0)
