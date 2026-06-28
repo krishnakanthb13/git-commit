@@ -249,6 +249,8 @@ def detect_version():
                 custom_base = input("Custom base version (e.g. 1.0.0): ").strip()
                 if not custom_base:
                     custom_base = "0.0.0"
+                if not custom_base.lower().startswith('v'):
+                    custom_base = "v" + custom_base
                 return custom_base, "custom user entry"
         except ValueError:
             pass
@@ -385,7 +387,7 @@ def increment_version(version_str, bump_type):
     parts = clean_version.split(".")
     if len(parts) != 3:
         # Fallback if not standard semver
-        return clean_version
+        return version_str
 
     if bump_type.startswith("custom:"):
         return bump_type.split(":", 1)[1]
@@ -393,7 +395,7 @@ def increment_version(version_str, bump_type):
     try:
         major, minor, patch = map(int, parts)
     except ValueError:
-        return clean_version
+        return version_str
 
     if bump_type == "major":
         major += 1
@@ -1466,8 +1468,11 @@ Git Diff:
                 bump_choice = "none"
             elif v_bump == 'c':
                 custom_ver = input("Enter custom version (e.g. 1.2.3): ").strip()
-                if custom_ver and not is_valid_semver(custom_ver):
-                    print_warn("Warning: custom version doesn't follow strict SemVer (X.Y.Z).")
+                if custom_ver:
+                    if not custom_ver.lower().startswith('v'):
+                        custom_ver = "v" + custom_ver
+                    if not is_valid_semver(custom_ver):
+                        print_warn("Warning: custom version doesn't follow strict SemVer (X.Y.Z).")
                 bump_choice = f"custom:{custom_ver}" if custom_ver else "patch"
             else:
                 bump_choice = "patch"

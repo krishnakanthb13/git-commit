@@ -28,7 +28,7 @@ This script implements the main execution loop. It is designed to be fully self-
 - `print_success(msg)`, `print_info(msg)`, `print_warn(msg)`, `print_error(msg)`: Colored output helpers with NO_COLOR/c() support.
 - `load_dotenv()`: Parses `.env` file without external dependencies. It looks in the directory where the script (`git_commit.py`) is located first, and then in the current working directory.
 - `run_git_cmd(args, strip=True)`: Subprocess wrapper for git commands; returns stdout or `None`.
-- `detect_version()`: Priority order (non-interactive) — git tags → git commit messages → `package.json` → `pyproject.toml` → `0.0.0`. Collects versions from all sources and prompts the user interactively if there is any mismatch.
+- `detect_version()`: Priority order (non-interactive) — git tags → git commit messages → `package.json` → `pyproject.toml` → `0.0.0`. Collects versions from all sources and prompts the user interactively if there is any mismatch. For custom base versions, it automatically prepends `v` if it is missing to maintain consistency.
 - `validate_commit_message(message)`: Validates commit format (72 char limit, conventional format, blank line). Returns list of issues.
 - `check_remote_tag(tag_name)`: Queries remote tags using `git ls-remote --tags origin <tag_name>` to see if the tag already exists on remote.
 - `version_already_tagged(version: str) -> bool`: Checks if version tag already exists locally before allowing a version bump.
@@ -41,7 +41,7 @@ This script implements the main execution loop. It is designed to be fully self-
 - `update_changelog(version, summary, description)`: Inserts a new section into `CHANGELOG.md` if it exists.
 
 **Version management**
-- `increment_version(version_str, bump_type)`: Semver bump; also handles `custom:x.y.z` passthrough.
+- `increment_version(version_str, bump_type)`: Semver bump; also handles `custom:x.y.z` passthrough. If the version is not a standard SemVer or can't be parsed, it preserves the original string (including any `v` prefix) instead of stripping it.
 - `update_version_in_files(new_version)`: Edits version field in `package.json` and `pyproject.toml`. Automatically stages these files to ensure the version updates are included in the same commit.
 
 **File & staging**
