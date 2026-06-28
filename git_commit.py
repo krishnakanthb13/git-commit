@@ -231,22 +231,22 @@ def detect_version():
         return valid_choices[0][0], valid_choices[0][1]
 
     # Present list to user to select
-    print(f"\n{c(COLOR_CYAN)}Select which version should be used as the base version to bump (+1):{c(COLOR_RESET)}")
+    print(f"\n{c(COLOR_CYAN)}Select base version for bumping:{c(COLOR_RESET)}")
     for idx, (ver, name) in enumerate(valid_choices, 1):
         print(f"  {c(COLOR_BOLD)}{idx}{c(COLOR_RESET)}) {ver} (from {name})")
     
     # Allow custom version as well
-    print(f"  {c(COLOR_BOLD)}{len(valid_choices)+1}{c(COLOR_RESET)}) Use a custom base version")
+    print(f"  {c(COLOR_BOLD)}{len(valid_choices)+1}{c(COLOR_RESET)}) Custom base version")
 
     while True:
-        choice = input(f"Enter choice [1-{len(valid_choices)+1}]: ").strip()
+        choice = input(f"Choice [1-{len(valid_choices)+1}]: ").strip()
         try:
             val = int(choice)
             if 1 <= val <= len(valid_choices):
                 selected = valid_choices[val-1]
                 return selected[0], selected[1]
             elif val == len(valid_choices) + 1:
-                custom_base = input("Enter custom base version (e.g. 1.0.0): ").strip()
+                custom_base = input("Custom base version (e.g. 1.0.0): ").strip()
                 if not custom_base:
                     custom_base = "0.0.0"
                 return custom_base, "custom user entry"
@@ -359,7 +359,10 @@ def update_changelog(version, summary, description):
     
     entry = f"\n## [v{clean_version}] - {date_str}\n\n### Changes\n\n- {summary}\n"
     if description:
-        entry += f"\n{description}\n"
+        # Indent the description bullets under the main summary bullet to preserve hierarchy
+        # Empty or whitespace-only lines are normalized to empty strings to prevent trailing spaces
+        indented_desc = "\n".join(f"  {line}" if line.strip() else "" for line in description.splitlines())
+        entry += f"{indented_desc}\n"
     
     with open(changelog_path, 'r', encoding='utf-8') as f:
         content = f.read()
@@ -483,12 +486,12 @@ def get_git_files():
 
 def prompt_amend_or_new():
     """Ask user whether to amend last commit or create new one."""
-    print(f"\n{c(COLOR_MAGENTA)}{c(COLOR_BOLD)}Commit Mode:{c(COLOR_RESET)}")
-    print(f"  {c(COLOR_BOLD)}n{c(COLOR_RESET)}) Create a NEW commit")
-    print(f"  {c(COLOR_BOLD)}a{c(COLOR_RESET)}) AMEND the last commit (updates message and adds staged changes)")
-    print(f"  {c(COLOR_BOLD)}f{c(COLOR_RESET)}) FRESH amend (replace last commit message completely with new AI suggestion)")
+    print(f"\n{c(COLOR_MAGENTA)}{c(COLOR_BOLD)}Commit Action:{c(COLOR_RESET)}")
+    print(f"  {c(COLOR_BOLD)}n{c(COLOR_RESET)}) New commit")
+    print(f"  {c(COLOR_BOLD)}a{c(COLOR_RESET)}) Amend previous commit (add files, update message)")
+    print(f"  {c(COLOR_BOLD)}f{c(COLOR_RESET)}) Fresh amend (add files, generate new AI message)")
     
-    choice = input(f"\n{c(COLOR_CYAN)}Select mode [n/a/f]:{c(COLOR_RESET)} ").strip().lower()
+    choice = input(f"\n{c(COLOR_CYAN)}Action [n/a/f]:{c(COLOR_RESET)} ").strip().lower()
     if choice == 'a':
         return 'amend'
     elif choice == 'f':
@@ -513,12 +516,12 @@ def prompt_stage_files(staged, unstaged, untracked):
             print(f"  {c(COLOR_BOLD)}{idx}{c(COLOR_RESET)}) [{color}{status}{c(COLOR_RESET)}] {f}")
         
         print(f"  {c(COLOR_BOLD)}a{c(COLOR_RESET)}) Stage all files")
-        print(f"  {c(COLOR_BOLD)}u{c(COLOR_RESET)}) Unstage files (select from staged)")
-        print(f"  {c(COLOR_BOLD)}p{c(COLOR_RESET)}) Proceed with just the staged files")
-        print(f"  {c(COLOR_BOLD)}q{c(COLOR_RESET)}) Quit")
-        print(f"\n  {c(COLOR_CYAN)}(Already-staged files shown in green){c(COLOR_RESET)}")
+        print(f"  {c(COLOR_BOLD)}u{c(COLOR_RESET)}) Unstage specific files")
+        print(f"  {c(COLOR_BOLD)}p{c(COLOR_RESET)}) Proceed with staged files")
+        print(f"  {c(COLOR_BOLD)}q{c(COLOR_RESET)}) Abort")
+        print(f"\n  {c(COLOR_CYAN)}(Staged files are highlighted in green){c(COLOR_RESET)}")
 
-        choice = input("\nEnter choice(s) (comma-separated numbers, 'a', 'u', 'p', or 'q'): ").strip().lower()
+        choice = input("\nAction [comma-separated numbers or a/u/p/q]: ").strip().lower()
         if choice == 'q':
             return "quit"
         elif choice == 'a':
@@ -536,11 +539,11 @@ def prompt_stage_files(staged, unstaged, untracked):
                 print_warn("No staged files to unstage.")
                 continue  # Loop back to re-display the picker
             
-            print_info("Select files to unstage:")
+            print_info("Unstage files:")
             for idx, f in enumerate(staged, 1):
                 print(f"  {c(COLOR_BOLD)}{idx}{c(COLOR_RESET)}) {f}")
             
-            unstage_choice = input("\nEnter numbers to unstage (comma-separated): ").strip()
+            unstage_choice = input("\nSelect files [comma-separated numbers]: ").strip()
             try:
                 for part in unstage_choice.split(","):
                     part = part.strip()
@@ -586,7 +589,7 @@ def prompt_stage_files(staged, unstaged, untracked):
 
 def monitor_ci():
     """Prompt and monitor CI using GitHub CLI if available."""
-    ci_choice = input(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}Monitor CI pipeline? (y/n) [n]:{c(COLOR_RESET)} ").strip().lower()
+    ci_choice = input(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}Monitor GitHub Actions CI? (y/N) [n]:{c(COLOR_RESET)} ").strip().lower()
     if ci_choice != "y":
         return
         
@@ -713,6 +716,14 @@ def call_gemini_api(api_key, model, prompt_text):
                 return parsed_response
         except urllib.error.HTTPError as e:
             err_msg = e.read().decode("utf-8")
+            if e.code == 400:
+                err_lower = err_msg.lower()
+                if "token" in err_lower or "context" in err_lower:
+                    print_error("Input exceeds model's context window. Try reducing diff size.")
+                    print_info("Solutions:")
+                    print_info("  1. Commit smaller, more focused changes")
+                    print_info("  2. Decrease max_diff_length in config")
+                    raise RuntimeError(f"Context window exceeded: {err_msg}")
             if e.code in [429, 503] and attempt < max_retries:
                 print_warn(f"Gemini API returned {e.code}. Retrying in {2 ** attempt}s ({attempt}/{max_retries})...")
                 time.sleep(2 ** attempt)
@@ -791,11 +802,52 @@ def detect_conventional_scope(files):
     
     return list(scopes) if scopes else None
 
+def estimate_tokens(text):
+    """Rough token estimation: ~4 characters per token for English text."""
+    return len(text) // 4
+
+def truncate_diff_for_context(diff, max_chars_limit, max_tokens, prompt_overhead=2000):
+    """
+    Intelligently truncate diff to fit within limits (both character/cost limits and token limits).
+    """
+    available_tokens = max_tokens - prompt_overhead
+    max_tokens_chars = available_tokens * 4
+    
+    # Use the stricter limit between configured max chars and model token limit
+    actual_max_chars = min(max_chars_limit, max_tokens_chars)
+    
+    if len(diff) <= actual_max_chars:
+        return diff, False
+    
+    if actual_max_chars == max_chars_limit:
+        print_warn(f"Diff is large (> {max_chars_limit:,} chars). Optimizing to save cost/latency...")
+    else:
+        print_warn(f"Diff exceeds context window (~{estimate_tokens(diff):,} tokens). Optimizing...")
+    
+    lines = diff.split('\n')
+    optimized_lines = []
+    current_size = 0
+    
+    for line in lines:
+        line_size = len(line) + 1
+        if current_size + line_size > actual_max_chars - 500:
+            break
+        optimized_lines.append(line)
+        current_size += line_size
+            
+    diff = '\n'.join(optimized_lines)
+    truncation_notice = f"\n... [diff truncated from ~{estimate_tokens(diff):,} to fit limits] ..."
+    diff += truncation_notice
+    
+    print_info(f"Diff optimized: ~{len(diff):,} chars (~{estimate_tokens(diff):,} tokens) remaining")
+    return diff, True
+
 def load_config():
     """Load config from .commitgenrc (JSON) in the repo or home directory."""
     defaults = {
         "default_bump": "patch",
         "max_diff_length": 20000,
+        "max_input_tokens": 900000,  # Reserve some tokens for response (1M - 100K safety margin)
         "auto_push": False,
         "model": "gemini-3.1-flash-lite",
         "auto_tag": False  # Set to True to skip the tagging confirmation prompt
@@ -1095,7 +1147,7 @@ def main():
         if NON_INTERACTIVE:
             user_context = ""
         else:
-            user_context = input(f"\n{COLOR_CYAN}{COLOR_BOLD}Optional - Enter context/notes for the commit (press Enter to skip):{COLOR_RESET} ").strip()
+            user_context = input(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}Optional - Enter context/notes for the commit (press Enter to skip):{c(COLOR_RESET)} ").strip()
 
         # 5. Git Diff
         if commit_mode == 'amend':
@@ -1113,19 +1165,11 @@ def main():
                 diff = "(No text diff — changes may include binary files or are otherwise empty.)"
 
         # Truncate diff if extremely large to save tokens/cost
-        if len(diff) > MAX_DIFF_SIZE:
-            print_warn("Diff is large. Optimizing to fit context window...")
-            lines = diff.split('\n')
-            optimized_lines = []
-            for line in lines:
-                if line.startswith('diff --git'):
-                    optimized_lines.append(line)
-                elif len('\n'.join(optimized_lines)) > MAX_DIFF_SIZE - 1000:
-                    break
-                else:
-                    optimized_lines.append(line)
-            diff = '\n'.join(optimized_lines)
-            diff += "\n... [diff truncated, showing key changes only] ..."
+        max_input_tokens = config.get("max_input_tokens", 900000)
+        diff, was_truncated = truncate_diff_for_context(diff, MAX_DIFF_SIZE, max_input_tokens)
+        if was_truncated:
+            print_warn("Some changes were omitted due to context or configured size limits.")
+            print_info("Consider committing smaller, focused changes for better AI analysis.")
 
     if not saved_state or not saved_state.get('summary'):
         # 6. Commit Message Generation
@@ -1241,6 +1285,9 @@ Git Diff:
     # 7. Interactive Review Loop
     bump_choice = config.get("default_bump", "patch") if not saved_state else saved_state.get('bump_choice', 'patch')
 
+    # Guard: ensure curr_version is always defined (resume path may set it but fresh path skips some branches)
+    if 'curr_version' not in locals():
+        curr_version = '0.0.0'
     # Guard: ensure user_context, diff, and prompt_text are always defined (resume path may skip them)
     if 'user_context' not in locals():
         user_context = ""
@@ -1309,17 +1356,17 @@ Git Diff:
                 print(f"  - {c(COLOR_YELLOW)}{issue}{c(COLOR_RESET)}")
 
         print(f"\nOptions:")
-        print(f"  {c(COLOR_BOLD)}c{c(COLOR_RESET)}) Commit as proposed")
-        print(f"  {c(COLOR_BOLD)}e{c(COLOR_RESET)}) Edit summary and description")
+        print(f"  {c(COLOR_BOLD)}c{c(COLOR_RESET)}) Commit")
+        print(f"  {c(COLOR_BOLD)}e{c(COLOR_RESET)}) Edit message")
         if commit_mode == 'new':
-            print(f"  {c(COLOR_BOLD)}g{c(COLOR_RESET)}) Regenerate commit message with AI")
-            print(f"  {c(COLOR_BOLD)}h{c(COLOR_RESET)}) View version history")
-            print(f"  {c(COLOR_BOLD)}v{c(COLOR_RESET)}) Change version bump category (patch/minor/major/none)")
-        print(f"  {c(COLOR_BOLD)}d{c(COLOR_RESET)}) View detailed diff")
-        print(f"  {c(COLOR_BOLD)}s{c(COLOR_RESET)}) Spell check commit message")
-        print(f"  {c(COLOR_BOLD)}x{c(COLOR_RESET)}) Cancel and exit")
+            print(f"  {c(COLOR_BOLD)}g{c(COLOR_RESET)}) Regenerate message (AI)")
+            print(f"  {c(COLOR_BOLD)}h{c(COLOR_RESET)}) Version history")
+            print(f"  {c(COLOR_BOLD)}v{c(COLOR_RESET)}) Change version bump")
+        print(f"  {c(COLOR_BOLD)}d{c(COLOR_RESET)}) View diff")
+        print(f"  {c(COLOR_BOLD)}s{c(COLOR_RESET)}) Spell check")
+        print(f"  {c(COLOR_BOLD)}x{c(COLOR_RESET)}) Cancel")
 
-        action = input(f"\nSelect option [c/e/{'g/h/v/' if commit_mode == 'new' else ''}d/s/x]: ").strip().lower()
+        action = input(f"\nAction [c/e/{'g/h/v/' if commit_mode == 'new' else ''}d/s/x]: ").strip().lower()
 
         if action == "c":
             break
@@ -1582,10 +1629,10 @@ Git Diff:
                     print_info("Pushing to remote...")
                     try:
                         subprocess.run(push_args, check=True)
-                        if commit_mode == 'new' and final_version and bump_choice != "none" and 'tag_name' in locals() and should_tag:
+                        if commit_mode == 'new' and final_version and bump_choice != "none" and 'tag_name' in locals() and 'should_tag' in locals() and should_tag:
                             # Check if tag already exists on remote
                             if check_remote_tag(tag_name):
-                                overwrite_remote = input(f"\n{c(COLOR_YELLOW)}Tag '{tag_name}' already exists on remote. Force push/overwrite? (y/n) [n]:{c(COLOR_RESET)} ").strip().lower()
+                                overwrite_remote = input(f"\n{c(COLOR_YELLOW)}Tag '{tag_name}' exists on remote. Force push? (y/N) [n]:{c(COLOR_RESET)} ").strip().lower()
                                 if overwrite_remote == 'y':
                                     subprocess.run(["git", "push", "origin", tag_name, "--force"], check=True)
                                     print_success(f"Tag '{tag_name}' force-pushed to remote.")
@@ -1629,12 +1676,12 @@ Git Diff:
         else:
             if not NON_INTERACTIVE and shutil.which("gh"):
                 print_info("No git remote configured.")
-                print(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}Create a new GitHub repository for this project?{c(COLOR_RESET)}")
-                print(f"  {c(COLOR_BOLD)}1{c(COLOR_RESET)}) Create a PRIVATE GitHub repository")
-                print(f"  {c(COLOR_BOLD)}2{c(COLOR_RESET)}) Create a PUBLIC GitHub repository")
-                print(f"  {c(COLOR_BOLD)}3{c(COLOR_RESET)}) Skip / Do nothing")
+                print(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}Create GitHub Repository:{c(COLOR_RESET)}")
+                print(f"  {c(COLOR_BOLD)}1{c(COLOR_RESET)}) Private repo")
+                print(f"  {c(COLOR_BOLD)}2{c(COLOR_RESET)}) Public repo")
+                print(f"  {c(COLOR_BOLD)}3{c(COLOR_RESET)}) Skip")
                 
-                choice = input(f"\n{c(COLOR_CYAN)}Select option [1/2/3] [3]:{c(COLOR_RESET)} ").strip()
+                choice = input(f"\n{c(COLOR_CYAN)}Action [1/2/3] [3]:{c(COLOR_RESET)} ").strip()
                 if choice in ['1', 'private']:
                     repo_name = os.path.basename(os.getcwd())
                     custom_name = input(f"Repository name [{repo_name}]: ").strip()
@@ -1646,7 +1693,7 @@ Git Diff:
                         subprocess.run(["gh", "repo", "create", repo_name, "--private", "--source=.", "--remote=origin", "--push"], check=True)
                         print_success("Repository created and pushed successfully!")
                         # Push tag if present
-                        if commit_mode == 'new' and final_version and bump_choice != "none" and 'tag_name' in locals() and should_tag:
+                        if commit_mode == 'new' and final_version and bump_choice != "none" and 'tag_name' in locals() and 'should_tag' in locals() and should_tag:
                             subprocess.run(["git", "push", "origin", tag_name], check=True)
                             print_success(f"Tag '{tag_name}' pushed to remote.")
                         monitor_ci()
@@ -1663,7 +1710,7 @@ Git Diff:
                         subprocess.run(["gh", "repo", "create", repo_name, "--public", "--source=.", "--remote=origin", "--push"], check=True)
                         print_success("Repository created and pushed successfully!")
                         # Push tag if present
-                        if commit_mode == 'new' and final_version and bump_choice != "none" and 'tag_name' in locals() and should_tag:
+                        if commit_mode == 'new' and final_version and bump_choice != "none" and 'tag_name' in locals() and 'should_tag' in locals() and should_tag:
                             subprocess.run(["git", "push", "origin", tag_name], check=True)
                             print_success(f"Tag '{tag_name}' pushed to remote.")
                         monitor_ci()
@@ -1675,7 +1722,7 @@ Git Diff:
                 print_info("No git remote configured. Skipped push.")
     except subprocess.CalledProcessError as e:
         print_error(f"Failed to complete Git actions: {e}")
-        retry = input(f"\n{c(COLOR_CYAN)}Would you like to restart CommitGen? (y/n) [n]: {c(COLOR_RESET)}").strip().lower()
+        retry = input(f"\n{c(COLOR_CYAN)}Restart CommitGen? (y/N) [n]: {c(COLOR_RESET)}").strip().lower()
         if retry == 'y':
             return True
         return False
@@ -1683,7 +1730,7 @@ Git Diff:
     clear_session_state()
     
     while True:
-        choice = input(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}Press Enter to exit, or type 'r' to run again: {c(COLOR_RESET)}").strip().lower()
+        choice = input(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}Press Enter to exit, or 'r' to restart: {c(COLOR_RESET)}").strip().lower()
         if choice == 'r':
             os.system('cls' if os.name == 'nt' else 'clear')
             print_info("Restarting CommitGen...\n")

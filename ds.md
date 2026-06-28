@@ -1,40 +1,67 @@
-I see you've pasted the complete updated script with the improved `show_folder_structure` function. This version uses a proper recursive tree traversal that will correctly display all folders and files in the repository structure.
+This is a comprehensive Python script called **CommitGen** - an AI-powered Git commit generator that uses Google Gemini API to create meaningful commit messages. Let me break down the key features:
 
-The key improvements in this version:
+## Core Features
 
-1. **Recursive `tree()` function** - Properly maintains hierarchy with correct indentation
-2. **Depth tracking** - Actually respects `max_depth` parameter
-3. **Correct tree connectors** - Uses `├──` for non-last items and `└──` for last items
-4. **Extended ignored directories** - Added `.pytest_cache`, `.mypy_cache`, `.tox`, `egg-info`, `.eggs`
-5. **Permission error handling** - Gracefully handles directories that can't be read
-6. **Empty repository detection** - Shows "(empty repository)" when appropriate
+### 1. **AI-Powered Commit Messages**
+- Uses Google Gemini API to analyze git diffs
+- Generates structured commit messages with summaries and descriptions
+- Supports conventional commit format (feat:, fix:, docs:, etc.)
+- Can regenerate messages if needed
 
-The script is now complete and ready to use. Here's a summary of what it does:
+### 2. **Version Management**
+- Auto-detects current version from multiple sources:
+  - Git tags
+  - Commit messages
+  - `package.json`
+  - `pyproject.toml`
+- Supports semantic versioning (patch, minor, major bumps)
+- Custom version options
+- Updates version in project files automatically
+- Creates and pushes git tags
 
-- **Displays project info**: AI model, project name, repository structure
-- **Intelligent versioning**: Detects current version from git tags, commits, or config files
-- **AI-powered commits**: Uses Google Gemini API to generate conventional commit messages
-- **Interactive workflow**: File staging, commit mode selection (new/amend), version bumping
-- **Post-commit actions**: Push, create PRs, monitor CI, update changelog
-- **Session recovery**: Saves state to recover from crashes
-- **Multiple modes**: Interactive, non-interactive (CI), and dry-run
+### 3. **Interactive Workflow**
+- Rich CLI interface with color coding
+- File staging/unstaging management
+- Commit amend support (with preservation of original messages)
+- Review/edit loop before finalizing
+- Spell checking (via aspell)
+- CI monitoring (via GitHub CLI)
 
-To use it:
-```bash
-# Make executable
-chmod +x commitgen.py
+### 4. **Smart Features**
+- Detects conventional commit scopes from file paths
+- Identifies issue references from branch names and commits
+- Warns about binary files
+- Configurable via `.commitgenrc` and environment variables
+- Session state saving for crash recovery
 
-# Set up API key
-echo 'GEMINI_API_KEY=your_key_here' > .env
+### 5. **Post-Commit Actions**
+- Push to remote (with force-push warnings for amends)
+- Pull request creation (via GitHub CLI)
+- CI pipeline monitoring
+- Repository creation for new projects
 
-# Run interactively
-./commitgen.py
+## Configuration Options
 
-# Or non-interactively (for CI)
-./commitgen.py --non-interactive
+- `GEMINI_API_KEY`: Required for AI features
+- `.commitgenrc`: JSON config for defaults
+- Environment variables for CI detection
+- Dry-run mode for testing
 
-# Dry run (preview without committing)
-./commitgen.py --dry-run
-```
+## Potential Improvements
 
-The repository structure display should now work correctly, showing all folders and their contents in a clean tree view!
+1. **Error Handling**: Some edge cases in the amend flow could be more robust
+2. **Testing**: No test suite included
+3. **Documentation**: Could benefit from a README
+4. **Performance**: Large diffs can be slow - consider local processing for file stats
+5. **Security**: API key handling is basic - consider keyring integration
+
+## Overall Assessment
+
+This is a well-structured, feature-rich tool that significantly improves the git commit workflow. The code quality is good with:
+- Clear separation of concerns
+- Good use of Python best practices
+- Comprehensive error handling
+- User-friendly interface
+- Session persistence for reliability
+
+The tool would be especially useful for teams that want consistent, meaningful commit messages and automated version management.
