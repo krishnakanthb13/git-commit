@@ -159,7 +159,7 @@ Create a `.commitgenrc` JSON file in your repo (or `~/.commitgenrc` globally) to
 ```json
 {
   "default_bump": "minor",
-  "max_diff_length": 20000,
+  "max_diff_length": 500000,
   "auto_push": false,
   "model": "gemini-3.1-flash-lite",
   "auto_tag": false
@@ -174,7 +174,7 @@ Create a `.commitgenrc` JSON file in your repo (or `~/.commitgenrc` globally) to
 
 **Available options**:
 - `default_bump`: Default version bump type (`patch`, `minor`, `major`, `none`)
-- `max_diff_length`: Maximum diff size in characters (default: 20000)
+- `max_diff_length`: Maximum diff size in characters (default: 500000)
 - `auto_push`: Automatically push after commit (default: false)
 - `model`: Gemini model to use (default: `gemini-3.1-flash-lite`)
 - `auto_tag`: Automatically create/move git tags without confirmation prompt (default: `false` for safety)
