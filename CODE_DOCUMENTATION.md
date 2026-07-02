@@ -119,7 +119,7 @@ The tool supports three commit modes for flexible history management:
 ```python
 {
     "default_bump": "patch",
-    "max_diff_length": 20000,
+    "max_diff_length": 500000,
     "auto_push": False,
     "model": "gemini-3.1-flash-lite",
     "auto_tag": False  # Set to True to skip the tagging confirmation prompt

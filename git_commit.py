@@ -848,7 +848,7 @@ def load_config():
     """Load config from .commitgenrc (JSON) in the repo or home directory."""
     defaults = {
         "default_bump": "patch",
-        "max_diff_length": 20000,
+        "max_diff_length": 500000,  # Increased from 20k to 500k as model supports 1M+ tokens
         "max_input_tokens": 900000,  # Reserve some tokens for response (1M - 100K safety margin)
         "auto_push": False,
         "model": "gemini-3.1-flash-lite",
