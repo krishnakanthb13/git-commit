@@ -43,6 +43,8 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 23. 📝 **Loads commit templates** from `.git/COMMIT_TEMPLATE` or `.github/PULL_REQUEST_TEMPLATE.md`
 24. 📦 **GitHub Repository Creation**: Auto-prompts to create a public/private repository on GitHub and push code/tags when no git remote is configured.
 25. 🔁 **Continuous Sessions**: Prompts to optionally restart the tool after completion or errors, allowing multiple commits in a single run without dropping back to the shell.
+26. 🔒 **Security: .env Protection**: Automatically detects and unstages `.env`, `.env.*`, and `.envrc` files to prevent accidental credential leaks. Strict matching avoids false positives on files like `production.env`.
+27. 🤖 **AI Prompt Optimization**: Excludes images, videos, audio, PDFs, and binary files from the Gemini prompt to save tokens and improve analysis quality. Files are still committed normally — only AI analysis is affected.
 
 **A comprehensive Git commit tool** that handles the entire workflow from staging to CI monitoring with excellent error handling and user experience.
 
@@ -50,6 +52,8 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 
 - 🔋 **Zero Dependencies**: Requires only standard Python 3 libraries. No `pip install` required.
 - ⚡ **Highly Efficient**: Single structured JSON API call with 60-second timeouts to prevent hanging. Smartly optimizes and truncates large diffs while preserving file headers.
+- 🔒 **Secure by Default**: Automatically blocks `.env` files from being committed, preventing accidental credential leaks. Strict `.env` detection avoids false positives.
+- 🤖 **AI-Optimized**: Excludes binary/media files from the AI prompt to save tokens and focus analysis on meaningful code changes.
 - 🔄 **Powerful Amend Workflow**: Three commit modes for flexible history management:
   - **New**: Create a fresh commit with version bump and tag
   - **Amend**: Update the last commit message and add new staged changes (preserves original as context)

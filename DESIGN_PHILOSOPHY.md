@@ -66,7 +66,15 @@ This document outlines the core architectural and design decisions behind the AI
   - Includes recent commit history as context for AI
   - Binary file detection prevents sending unreadable content to AI
 
-## 12. Post-Commit Workflow Automation
+## 12. Security-First .env Handling
+- **Motivation**: Accidentally committing `.env` files containing API keys, database credentials, or other secrets is one of the most common security mistakes in development. A commit tool should actively prevent this.
+- **Implementation**:
+  - Strict `.env` detection via `is_env_file()` — only matches `.env`, `.env.*`, and `.envrc` (avoids false positives on files like `production.env`)
+  - Automatically detects and unstages `.env` files with a security warning
+  - Recursive re-scan after unstaging to ensure clean file lists
+  - AI prompt exclusion list (`AI_PROMPT_EXCLUDED_EXTENSIONS`) prevents binary/media files from being sent to Gemini, saving tokens and avoiding parsing issues while still allowing normal git commits
+
+## 13. Post-Commit Workflow Automation
 - **Motivation**: Committing is only step one of modern development. A professional tool should support the full lifecycle up to deployment.
 - **Implementation**: 
   - Automatic version updates in project files (package.json, pyproject.toml)
@@ -78,7 +86,7 @@ This document outlines the core architectural and design decisions behind the AI
 - Force-push detection and warnings for amended commits
   - Version prefix added to commit messages for all modes (e.g., `v1.2.3 - feat: add feature` or `1.2.3 - feat: add feature`)
 
-## 13. Terminal Resilience & Interface Stability
+## 14. Terminal Resilience & Interface Stability
 - **Motivation**: Command-line interfaces should never crash or hang indefinitely due to recursive call stack limits, network timeouts, or stdout redirection errors.
 - **Implementation**:
   - Replaces recursive interaction models in the file staging picker with iterative loops to avoid stack overflows.

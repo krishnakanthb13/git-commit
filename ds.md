@@ -1,60 +1,37 @@
-Perfect! You've made the right decision. Let me summarize what you've accomplished:
+Perfect! The rename to `AI_PROMPT_EXCLUDED_EXTENSIONS` is a great improvement. It makes the intent crystal clear:
 
-## ✅ What You Changed
+## ✅ Final State Summary
 
-**Line ~811 in `load_config()`:**
-```python
-"max_diff_length": 500000,  # Increased from 20k to 500k
-```
+### 🎯 Clear Naming Convention
+- **`AI_PROMPT_EXCLUDED_EXTENSIONS`** - Explicitly communicates these files are excluded only from the AI prompt generation, not from git operations
+- **`should_exclude_from_ai()`** - Clear purpose: "should this file be excluded from AI analysis?"
+- **`is_env_file()`** - Strict matching for security-sensitive files
 
-## 📊 Impact Analysis
+### 🔒 Security Protection
+- `.env`, `.env.*`, and `.envrc` files are **completely blocked** from staging/committing
+- Auto-unstage with security warning if detected
+- Prevents accidental credential leaks
 
-| Aspect | Before | After | Improvement |
-|--------|--------|-------|-------------|
-| **Diff limit** | 20,000 chars | 500,000 chars | **25x larger** |
-| **Token budget** | ~5,000 tokens | ~125,000 tokens | **25x more** |
-| **Context window usage** | <0.5% | ~12% | Still well within Gemini's 1M limit |
-| **Files covered** | ~10-20 files | **50-100+ files** | Full commit coverage |
-| **Context loss** | Frequent truncation | **Rarely truncates** | Almost always full context |
+### 🤖 AI Optimization
+- Images, videos, audio, and binary files are excluded from Gemini prompts
+- Saves API costs and tokens
+- Provides better AI analysis by focusing on code changes only
 
-## 🎯 What This Means For You
+### 📦 Full Git Support
+- All files (including images and binaries) can still be staged and committed
+- Only AI analysis is affected, not git functionality
+- Files appear in the file picker and commit list
 
-1. **No more "diff truncated" warnings** for normal commits
-2. **AI sees the full picture** - better understanding of relationships between changes
-3. **Better commit messages** - Gemini can identify patterns across all changed files
-4. **No complex chunking logic** needed - keeping the code simple
-5. **Still cost-effective** - Gemini Flash Lite is extremely cheap per token
+### 📝 Code Quality
+- Constants at module level for easy maintenance
+- Helper functions with single responsibilities
+- Clear, self-documenting names
+- Consistent usage throughout the codebase
 
-## 📝 When Truncation Might Still Happen
+The implementation is clean, well-organized, and ready for production use. Users get:
+- **Security**: Protected from accidental .env commits
+- **Performance**: No token waste on binary files
+- **Clarity**: Clear naming and documentation
+- **Flexibility**: All files can still be committed normally
 
-Only in **extreme cases**:
-- **Monorepo commits** with 200+ files
-- **Massive refactors** touching 20K+ lines
-- **Generated code** or large data files in diff
-
-Even then, the 500K limit is generous enough for most real-world scenarios. If you *do* hit it, the existing warning will prompt you to consider smaller, more focused commits (which is good practice anyway).
-
-## 🚀 Next Steps
-
-Your script is now ready to handle large commits efficiently. You can:
-
-1. **Test it out** with a medium-to-large commit
-2. **Keep the config** - users can still override with `.commitgenrc` if they want
-3. **Monitor performance** - Gemini should handle 125K tokens in ~2-5 seconds
-
-## 💡 Pro Tip
-
-If you want to see the exact token usage, you could add a small info message:
-
-```python
-# After getting the diff
-estimated_tokens = len(diff) // 4
-if estimated_tokens > 10000:  # Only show for larger diffs
-    print_info(f"📊 Diff size: ~{estimated_tokens:,} tokens / {len(diff):,} chars")
-```
-
-This gives users visibility without cluttering the output.
-
----
-
-**Bottom line:** You've made a smart, pragmatic choice that balances capability, simplicity, and cost. Your commit messages will now be based on **complete context** instead of truncated snippets. Well done! 🎉
+Great work on the refactoring! 🎉

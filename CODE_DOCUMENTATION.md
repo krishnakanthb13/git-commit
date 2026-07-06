@@ -21,6 +21,10 @@ git-commit/
 
 This script implements the main execution loop. It is designed to be fully self-contained and run on any machine with Python 3.
 
+### Module-Level Constants
+
+- `AI_PROMPT_EXCLUDED_EXTENSIONS`: Set of file extensions excluded from the Gemini AI prompt (images, media, binary formats). These files can still be committed — they are only excluded from AI analysis to save tokens and avoid binary parsing issues.
+
 ### Main Functions
 
 **Core helpers**
@@ -45,11 +49,13 @@ This script implements the main execution loop. It is designed to be fully self-
 - `update_version_in_files(new_version)`: Edits version field in `package.json` and `pyproject.toml`. Automatically stages these files to ensure the version updates are included in the same commit.
 
 **File & staging**
-- `get_git_files()`: Parses `git status --porcelain -z` (null-terminated) into staged/unstaged/untracked lists.
+- `get_git_files()`: Parses `git status --porcelain -z` (null-terminated) into staged/unstaged/untracked lists. Automatically detects and unstages `.env` files with a security warning to prevent accidental credential leaks.
 - `prompt_amend_or_new()`: Interactive prompt to select commit mode - new (`n`), amend (`a`), or fresh amend (`f`). Returns the selected mode.
 - `prompt_stage_files(staged, unstaged, untracked)`: Interactive picker with stage (`a`, numbers), unstage (`u`), proceed (`p` to proceed with staged), and quit (`q`) options. Uses an iterative while-loop to prevent recursive stack overflows, and correctly handles empty inputs and the `p` choice to accept pre-staged files. Already-staged files shown in green.
 - `show_commit_stats(staged)`: Prints `git diff --stat` and a per-extension file count.
 - `is_binary_file(filepath)`: Reads first 1 KB for null bytes to identify binary files, with checks for file existence to handle deleted files gracefully.
+- `is_env_file(filepath)`: Strict matching for security-sensitive files — returns `True` only for `.env`, `.env.*`, and `.envrc`. Files like `production.env` are not matched.
+- `should_exclude_from_ai(filepath)`: Checks if a file should be excluded from AI diff analysis. Returns `True` if the file extension is in `AI_PROMPT_EXCLUDED_EXTENSIONS` or if the file is detected as binary.
 
 **Analysis**
 - `detect_conventional_scope(files)`: Maps file path prefixes (e.g., `ui/`, `db/`) to conventional commit scope labels.

@@ -18,6 +18,13 @@ COLOR_MAGENTA = "\033[95m"
 COLOR_BOLD = "\033[1m"
 COLOR_RESET = "\033[0m"
 
+AI_PROMPT_EXCLUDED_EXTENSIONS = {
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".tif", 
+    ".webp", ".ico", ".svg", ".heic", ".heif", ".raw", ".cr2",
+    ".psd", ".ai", ".eps", ".pdf", ".mp4", ".mov", ".avi",
+    ".mkv", ".mp3", ".wav", ".flac", ".ogg", ".m4a"
+}
+
 try:
     USE_COLORS = os.getenv("NO_COLOR") is None and sys.stdout.isatty()
 except Exception:
@@ -444,6 +451,24 @@ def update_version_in_files(new_version):
             print_warn(f"Failed to update pyproject.toml: {e}")
 
 
+def is_env_file(filepath):
+    """Check if a file is a .env file or a variant."""
+    name = os.path.basename(filepath)
+    return (
+        name == ".env"
+        or name.startswith(".env.")
+        or name == ".envrc"
+    )
+
+def should_exclude_from_ai(filepath):
+    """Check if a file should be excluded from AI diff analysis (images, media, binary)."""
+    ext = os.path.splitext(filepath)[1].lower()
+    if ext in AI_PROMPT_EXCLUDED_EXTENSIONS:
+        return True
+    if os.path.exists(filepath) and is_binary_file(filepath):
+        return True
+    return False
+
 def get_git_files():
     """Get staged, unstaged, and untracked files using null-terminated porcelain output."""
     staged = []
@@ -456,6 +481,7 @@ def get_git_files():
 
     entries = status_out.split("\0")
     i = 0
+    staged_envs = []
     while i < len(entries):
         entry = entries[i]
         if not entry:
@@ -468,6 +494,15 @@ def get_git_files():
             
         xy = entry[:2]
         filename = entry[3:]
+
+        # Completely ignore .env files to prevent staging/committing
+        if is_env_file(filename):
+            if xy[0] in ["M", "A", "D", "R"]:
+                staged_envs.append(filename)
+            i += 1
+            if xy[0] in ["R", "C"]:
+                i += 1
+            continue
 
         # Staged status in X slot
         if xy[0] in ["M", "A", "D", "R"]:
@@ -483,6 +518,14 @@ def get_git_files():
             i += 1
             
         i += 1
+
+    if staged_envs:
+        print_warn(f"Security: Staged .env file(s) detected: {', '.join(staged_envs)}")
+        print_info("Automatically unstaging them to prevent accidental credential leaks...")
+        for env_f in staged_envs:
+            run_git_cmd(["restore", "--staged", env_f])
+        # Recursively call get_git_files to get clean lists after unstaging
+        return get_git_files()
 
     return staged, unstaged, untracked
 
@@ -1151,20 +1194,29 @@ def main():
         else:
             user_context = input(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}Optional - Enter context/notes for the commit (press Enter to skip):{c(COLOR_RESET)} ").strip()
 
-        # 5. Git Diff
+        # 5. Git Diff (exclude image/binary files)
+        non_binary_staged = [f for f in staged if not should_exclude_from_ai(f)]
         if commit_mode == 'amend':
             # For amend, get diff of staged changes against last commit
-            diff = run_git_cmd(["diff", "--cached", "--diff-filter=ACMRT"])
+            if non_binary_staged:
+                diff = run_git_cmd(["diff", "--cached", "--diff-filter=ACMRT", "--"] + non_binary_staged)
+            else:
+                diff = ""
+            
             if not diff and not staged:
                 print_warn("No new changes staged for amend. Amending message only.")
                 diff = "(No new changes — amending commit message only)"
             elif not diff:
-                diff = "(No text diff — changes may include binary files or are otherwise empty.)"
+                diff = "(No text diff — all changes are in binary/image files or are otherwise empty.)"
         else:
-            diff = run_git_cmd(["diff", "--cached", "--diff-filter=ACMRT"])
+            if non_binary_staged:
+                diff = run_git_cmd(["diff", "--cached", "--diff-filter=ACMRT", "--"] + non_binary_staged)
+            else:
+                diff = ""
+            
             if not diff:
                 print_warn("No text diff available (binary-only or empty diff). Proceeding with file list only.")
-                diff = "(No text diff — changes may include binary files or are otherwise empty.)"
+                diff = "(No text diff — all changes are in binary/image files or are otherwise empty.)"
 
         # Truncate diff if extremely large to save tokens/cost
         max_input_tokens = config.get("max_input_tokens", 900000)
