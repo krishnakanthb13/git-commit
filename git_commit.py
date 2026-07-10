@@ -1636,8 +1636,8 @@ Git Diff:
                 should_tag = True
             else:
                 print_info(f"About to create tag: {tag_name}")
-                approve_tag = input(f"{c(COLOR_CYAN)}Create git tag '{tag_name}'? (y/n) [y]:{c(COLOR_RESET)} ").strip().lower()
-                should_tag = approve_tag != 'n'  # Default to yes if user just presses Enter
+                approve_tag = input(f"{c(COLOR_CYAN)}Create git tag '{tag_name}'? (y/N) [n]:{c(COLOR_RESET)} ").strip().lower()
+                should_tag = approve_tag == 'y'  # Default to no if user just presses Enter
             
             # Update changelog
             update_changelog(final_version, summary, description)
@@ -1651,7 +1651,7 @@ Git Diff:
                     print_success(f"Commit created and tagged as {tag_name}!")
                 else:
                     print_success(f"Commit created without tag!")
-                    print_info(f"You can tag manually later with: git tag -a {tag_name} -m 'Version {tag_name}'")
+                    print_info(f'You can tag manually later with: git tag -a {tag_name} -m "Version {tag_name}"')
             except subprocess.CalledProcessError as e:
                 print_error(f"Commit failed: {e}")
                 retry = input(f"\n{c(COLOR_CYAN)}Would you like to restart CommitGen? (y/n) [n]: {c(COLOR_RESET)}").strip().lower()
