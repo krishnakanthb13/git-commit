@@ -6,7 +6,7 @@ This document describes the technical implementation details of the AI Git Commi
 
 ```
 git-commit/
-├── git_commit.py              # Core CLI tool logic (1,611 lines)
+├── git_commit.py              # Core CLI tool logic (1,812 lines)
 ├── register.py                # Windows Registry integration helper
 ├── .env.template              # Configuration environment template
 ├── .env                       # Local configuration (contains API key, gitignored)
@@ -51,7 +51,7 @@ This script implements the main execution loop. It is designed to be fully self-
 **File & staging**
 - `get_git_files()`: Parses `git status --porcelain -z` (null-terminated) into staged/unstaged/untracked lists. Automatically detects and unstages `.env` files with a security warning to prevent accidental credential leaks.
 - `prompt_amend_or_new()`: Interactive prompt to select commit mode - new (`n`), amend (`a`), or fresh amend (`f`). Returns the selected mode.
-- `prompt_stage_files(staged, unstaged, untracked)`: Interactive picker with stage (`a`, numbers), unstage (`u`), proceed (`p` to proceed with staged), and quit (`q`) options. Uses an iterative while-loop to prevent recursive stack overflows, and correctly handles empty inputs and the `p` choice to accept pre-staged files. Already-staged files shown in green.
+- `prompt_stage_files(staged, unstaged, untracked)`: Interactive picker with stage (`a`, numbers), unstage (`u`), proceed (`p` to proceed with staged), and quit (`q`) options. Uses an iterative while-loop to prevent recursive stack overflows, and correctly handles empty inputs and the `p` choice to accept pre-staged files. Color-codes statuses: staged is green, modified is yellow, and untracked is red.
 - `show_commit_stats(staged)`: Prints `git diff --stat` and a per-extension file count.
 - `is_binary_file(filepath)`: Reads first 1 KB for null bytes to identify binary files, with checks for file existence to handle deleted files gracefully.
 - `is_env_file(filepath)`: Strict matching for security-sensitive files — returns `True` only for `.env`, `.env.*`, and `.envrc`. Files like `production.env` are not matched.
@@ -99,9 +99,8 @@ The tool supports three commit modes for flexible history management:
 - Uses `git commit --amend -m <message>`
 
 **3. Fresh Amend Mode (`f`)**
-- Completely replaces the last commit message with new AI-generated content
-- Shows original commit message for reference only
-- AI prompt instructs to generate a COMPLETELY NEW commit message
+- Completely replaces the last commit message with new AI-generated content based entirely on the staged diff
+- Bypasses the original commit message to avoid anchoring bias
 - No version bump by default (version unchanged)
 - Warns about force push requirement if already pushed to remote
 - Updates CHANGELOG.md with new message
@@ -113,7 +112,7 @@ The tool supports three commit modes for flexible history management:
 - Diff against last commit shown for review
 - Force push prompted after amend if pushing to remote
 - Version bump option hidden in review screen for amend modes
-- AI prompt includes amend-specific context with original commit message
+- AI prompt includes amend-specific context with original commit message for standard amend mode (skipped in fresh amend mode to prevent anchoring)
 - Version prefix added to commit message for all modes (prevents duplication)
 - **Tag relocation**: Automatically detects if the commit being amended has any associated Git tags; if found, it prompts the user before relocating them locally (`git tag -f <tag_name>`) and force-pushes them to remote (respects `auto_tag` settings).
 - **Tag Approval**: Prompts user for confirmation before tagging new commits or moving tags on amend (configurable/bypassable via `auto_tag` settings).

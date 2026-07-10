@@ -83,7 +83,7 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 
 ```
 git-commit/
-├── git_commit.py              ← main tool (1,667 lines)
+├── git_commit.py              ← main tool (1,812 lines)
 ├── register.py                ← install/uninstall context menu (winreg)
 ├── .env.template              ← copy to .env and add your API key
 ├── .env                       ← local configuration (contains API key, gitignored)

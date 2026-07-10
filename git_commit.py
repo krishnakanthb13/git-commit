@@ -557,14 +557,19 @@ def prompt_stage_files(staged, unstaged, untracked):
 
         print_info("Select files to stage/commit:")
         for idx, (f, status) in enumerate(all_available, 1):
-            color = c(COLOR_GREEN) if status == "staged" else ""
+            if status == "staged":
+                color = c(COLOR_GREEN)
+            elif status == "modified":
+                color = c(COLOR_YELLOW)
+            else:
+                color = c(COLOR_RED)
             print(f"  {c(COLOR_BOLD)}{idx}{c(COLOR_RESET)}) [{color}{status}{c(COLOR_RESET)}] {f}")
         
         print(f"  {c(COLOR_BOLD)}a{c(COLOR_RESET)}) Stage all files")
         print(f"  {c(COLOR_BOLD)}u{c(COLOR_RESET)}) Unstage specific files")
         print(f"  {c(COLOR_BOLD)}p{c(COLOR_RESET)}) Proceed with staged files")
         print(f"  {c(COLOR_BOLD)}q{c(COLOR_RESET)}) Abort")
-        print(f"\n  {c(COLOR_CYAN)}(Staged files are highlighted in green){c(COLOR_RESET)}")
+        print(f"\n  {c(COLOR_CYAN)}(staged: green, modified: yellow, untracked: red){c(COLOR_RESET)}")
 
         choice = input("\nAction [comma-separated numbers or a/u/p/q]: ").strip().lower()
         if choice == 'q':
@@ -1265,22 +1270,6 @@ def main():
             scope = detect_conventional_scope(staged)
             scope_context = f"\nDetected scope: {', '.join(scope)}\n" if scope else ""
 
-            # Prepare amend-specific context for fresh_amend
-            if commit_mode == 'fresh_amend':
-                last_msg = get_last_commit_message()
-                if last_msg:
-                    amend_context = f"""
-Current Last Commit Message (for reference only - DO NOT reuse any part):
-{last_msg}
-
-IMPORTANT: Generate a COMPLETELY NEW commit message that encompasses ALL changes (both old and new).
-Do NOT reference, copy, or preserve any part of the old message.
-"""
-                else:
-                    amend_context = ""
-            else:
-                amend_context = ""
-
             print_info("Generating commit message via Gemini...")
             prompt_text = f"""
 You are a git commit message generator helper.
@@ -1289,7 +1278,7 @@ Use conventional commit format if possible (feat:, fix:, docs:, style:, refactor
 
 Staged files:
 {", ".join(staged)}
-{recent_context}{template_context}{scope_context}{issues_context}{amend_context}
+{recent_context}{template_context}{scope_context}{issues_context}
 User custom context / notes:
 {user_context if user_context else "(None provided)"}
 
