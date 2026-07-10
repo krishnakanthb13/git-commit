@@ -727,7 +727,7 @@ def call_gemini_api(api_key, model, prompt_text):
                     },
                     "description": {
                         "type": "STRING", 
-                        "description": "Detailed bulleted list of changes and reasoning. Keep it readable and informative."
+                        "description": "Detailed list of changes and reasoning. Each bullet point must be on a new line starting with '- '. Do NOT write them as a single paragraph."
                     }
                 },
                 "required": ["summary", "description"]
@@ -1200,28 +1200,40 @@ def main():
             user_context = input(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}Optional - Enter context/notes for the commit (press Enter to skip):{c(COLOR_RESET)} ").strip()
 
         # 5. Git Diff (exclude image/binary files)
-        non_binary_staged = [f for f in staged if not should_exclude_from_ai(f)]
-        if commit_mode == 'amend':
-            # For amend, get diff of staged changes against last commit
+        if commit_mode == 'fresh_amend' and run_git_cmd(["rev-parse", "--verify", "HEAD~1"]):
+            # Get combined files of the last commit and currently staged changes
+            amend_files = run_git_cmd(["diff", "--name-only", "--cached", "HEAD~1"])
+            staged_files_for_prompt = [f.strip() for f in amend_files.split('\n') if f.strip()]
+            non_binary_staged = [f for f in staged_files_for_prompt if not should_exclude_from_ai(f)]
             if non_binary_staged:
-                diff = run_git_cmd(["diff", "--cached", "--diff-filter=ACMRT", "--"] + non_binary_staged)
+                diff = run_git_cmd(["diff", "--cached", "--diff-filter=ACMRT", "HEAD~1", "--"] + non_binary_staged)
             else:
                 diff = ""
-            
-            if not diff and not staged:
-                print_warn("No new changes staged for amend. Amending message only.")
-                diff = "(No new changes — amending commit message only)"
-            elif not diff:
-                diff = "(No text diff — all changes are in binary/image files or are otherwise empty.)"
         else:
-            if non_binary_staged:
-                diff = run_git_cmd(["diff", "--cached", "--diff-filter=ACMRT", "--"] + non_binary_staged)
+            staged_files_for_prompt = staged
+            non_binary_staged = [f for f in staged if not should_exclude_from_ai(f)]
+            if commit_mode == 'amend':
+                # For amend, get diff of staged changes against last commit
+                if non_binary_staged:
+                    diff = run_git_cmd(["diff", "--cached", "--diff-filter=ACMRT", "--"] + non_binary_staged)
+                else:
+                    diff = ""
+                
+                if not diff and not staged:
+                    print_warn("No new changes staged for amend. Amending message only.")
+                    diff = "(No new changes — amending commit message only)"
+                elif not diff:
+                    diff = "(No text diff — all changes are in binary/image files or are otherwise empty.)"
             else:
-                diff = ""
-            
-            if not diff:
-                print_warn("No text diff available (binary-only or empty diff). Proceeding with file list only.")
-                diff = "(No text diff — all changes are in binary/image files or are otherwise empty.)"
+                # new commit
+                if non_binary_staged:
+                    diff = run_git_cmd(["diff", "--cached", "--diff-filter=ACMRT", "--"] + non_binary_staged)
+                else:
+                    diff = ""
+                
+                if not diff:
+                    print_warn("No text diff available (binary-only or empty diff). Proceeding with file list only.")
+                    diff = "(No text diff — all changes are in binary/image files or are otherwise empty.)"
 
         # Truncate diff if extremely large to save tokens/cost
         max_input_tokens = config.get("max_input_tokens", 900000)
@@ -1267,7 +1279,7 @@ def main():
             issues = extract_issue_references()
             issues_context = f"\nRelated Issues: {', '.join(['#' + i for i in issues])}\n(Please include these issue numbers if relevant)\n" if issues else ""
             
-            scope = detect_conventional_scope(staged)
+            scope = detect_conventional_scope(staged_files_for_prompt)
             scope_context = f"\nDetected scope: {', '.join(scope)}\n" if scope else ""
 
             print_info("Generating commit message via Gemini...")
@@ -1276,8 +1288,12 @@ You are a git commit message generator helper.
 Analyze the following git diff and user provided context, then output a structured commit summary and description.
 Use conventional commit format if possible (feat:, fix:, docs:, style:, refactor:, test:, chore:, etc.).
 
+Formatting requirements for the description:
+- Every bullet point must be on a new line starting with '- '.
+- Do NOT merge multiple points/sentences into a single line or paragraph.
+
 Staged files:
-{", ".join(staged)}
+{", ".join(staged_files_for_prompt)}
 {recent_context}{template_context}{scope_context}{issues_context}
 User custom context / notes:
 {user_context if user_context else "(None provided)"}
@@ -1322,6 +1338,7 @@ Git Diff:
         description = saved_state.get('description', '')
         bump_choice = saved_state.get('bump_choice', config["default_bump"])
         staged = saved_state.get('staged', [])
+        staged_files_for_prompt = staged
         curr_version = saved_state.get('curr_version', '0.0.0')
         commit_mode = saved_state.get('commit_mode', 'new')
 

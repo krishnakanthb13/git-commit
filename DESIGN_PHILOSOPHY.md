@@ -49,7 +49,7 @@ This document outlines the core architectural and design decisions behind the AI
 - **Implementation**: Three distinct commit modes:
   - **New**: Standard commit with version bump and tag creation
   - **Amend**: Update the last commit message while preserving its structure, adding new staged changes
-  - **Fresh Amend**: Completely replace the last commit message with AI-generated content that encompasses all changes
+  - **Fresh Amend**: Completely replace the last commit message with AI-generated content that encompasses all changes (analyzing the combined diff of the original commit and staged changes against `HEAD~1` to describe the entire change set as a single unit)
   - Amend mode includes the original commit message as AI context for coherent updates
   - Smart force-push detection for amended commits that were already pushed
   - Version bump automatically disabled for amend mode (no accidental version changes)

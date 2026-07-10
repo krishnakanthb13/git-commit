@@ -99,7 +99,7 @@ The tool supports three commit modes for flexible history management:
 - Uses `git commit --amend -m <message>`
 
 **3. Fresh Amend Mode (`f`)**
-- Completely replaces the last commit message with new AI-generated content based entirely on the staged diff
+- Completely replaces the last commit message with new AI-generated content based on the combined diff of the original commit's changes and any newly staged changes (diffed against `HEAD~1`)
 - Bypasses the original commit message to avoid anchoring bias
 - No version bump by default (version unchanged)
 - Warns about force push requirement if already pushed to remote
@@ -112,8 +112,9 @@ The tool supports three commit modes for flexible history management:
 - Diff against last commit shown for review
 - Force push prompted after amend if pushing to remote
 - Version bump option hidden in review screen for amend modes
-- AI prompt includes amend-specific context with original commit message for standard amend mode (skipped in fresh amend mode to prevent anchoring)
+- AI prompt includes amend-specific context with original commit message for standard amend mode (skipped in fresh amend mode to prevent anchoring, which instead compares against `HEAD~1` to capture the entire combined change set)
 - Version prefix added to commit message for all modes (prevents duplication)
+- Description bullet points are guaranteed to be structured on new lines starting with `- ` via API response schema and prompt constraints.
 - **Tag relocation**: Automatically detects if the commit being amended has any associated Git tags; if found, it prompts the user before relocating them locally (`git tag -f <tag_name>`) and force-pushes them to remote (respects `auto_tag` settings).
 - **Tag Approval**: Prompts user for confirmation before tagging new commits or moving tags on amend (configurable/bypassable via `auto_tag` settings).
 - **Format Preservation**: Version prefix (e.g. `1.2.3 - ...` vs `v1.2.3 - ...`) matches the original format of the base version instead of always forcing a leading `v`.
