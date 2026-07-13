@@ -155,18 +155,19 @@ def detect_version():
         # Look for version patterns in recent commit messages
         log = run_git_cmd(["log", "--oneline", "-50"])  # Check last 50 commits
         if log:
-            # Pattern for version in commit messages like "v1.2.3" or "version 1.2.3" or "bump to 1.2.3"
-            version_pattern = re.compile(r'(?:^|\s)(v?(\d+)\.(\d+)\.(\d+))(?:\s|$)', re.IGNORECASE)
+            # Pattern for version in commit message PREFIX (e.g. "v1.2.3 - " at the start)
+            # Only match versions in the prefix, not in the body/description text
+            prefix_version_pattern = re.compile(r'^v?(\d+)\.(\d+)\.(\d+)\s*-\s*', re.IGNORECASE)
             found_versions = []
             for line in log.split('\n'):
                 # Remove the commit hash (first word)
                 parts = line.split(' ', 1)
                 if len(parts) > 1:
                     message = parts[1]
-                    matches = version_pattern.findall(message)
-                    for match in matches:
-                        full_match = match[0]  # The full version string including 'v' if present
-                        major, minor, patch = int(match[1]), int(match[2]), int(match[3])
+                    match = prefix_version_pattern.match(message)
+                    if match:
+                        major, minor, patch = int(match.group(1)), int(match.group(2)), int(match.group(3))
+                        full_match = message[:match.end()].strip().rstrip(' -')
                         found_versions.append((major, minor, patch, full_match, message[:50]))
             
             if found_versions:
@@ -1378,6 +1379,15 @@ Git Diff:
             bump_choice = "none"
         
         display_summary = summary
+        # Detect and strip any existing version prefix from summary (e.g. "v1.2.3 - refactor: ...")
+        # Always use the version from the prefix - that's what the user explicitly typed
+        existing_ver_match = re.match(r'^(v?\d+\.\d+\.\d+)\s*-\s*', display_summary)
+        if existing_ver_match:
+            existing_version = existing_ver_match.group(1)
+            display_summary = display_summary[existing_ver_match.end():]
+            # Always use the version from the user's prefix
+            proposed_version = existing_version
+        
         # Add version prefix for ALL modes (but prevent duplication)
         if proposed_version:
             version_prefix = f"{proposed_version} - "
@@ -1544,6 +1554,15 @@ Git Diff:
         final_version = curr_version
     else:
         final_version = None
+
+    # Detect and strip any existing version prefix from summary
+    # Always use the version from the prefix - that's what the user explicitly typed
+    existing_ver_match = re.match(r'^(v?\d+\.\d+\.\d+)\s*-\s*', summary)
+    if existing_ver_match:
+        existing_version = existing_ver_match.group(1)
+        summary = summary[existing_ver_match.end():]
+        # Always use the version from the user's prefix
+        final_version = existing_version
 
     if final_version:
         version_prefix = f"{final_version} - "
