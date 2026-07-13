@@ -83,6 +83,7 @@ This document outlines the core architectural and design decisions behind the AI
   - Pull Request creation via GitHub CLI (`gh pr create`)
   - CI pipeline monitoring with live streaming (`gh run watch`)
   - Automatic GitHub Repository Creation (public or private) when no remote is configured
+  - Pre-push pull safety check (`git pull --rebase`) with user permission confirmation (respects `auto_pull` configuration)
 - Force-push detection and warnings for amended commits
   - Version prefix added to commit messages for all modes (e.g., `v1.2.3 - feat: add feature` or `1.2.3 - feat: add feature`)
 

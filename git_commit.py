@@ -900,6 +900,7 @@ def load_config():
         "max_diff_length": 500000,  # Increased from 20k to 500k as model supports 1M+ tokens
         "max_input_tokens": 900000,  # Reserve some tokens for response (1M - 100K safety margin)
         "auto_push": False,
+        "auto_pull": True,
         "model": "gemini-3.1-flash-lite",
         "auto_tag": False  # Set to True to skip the tagging confirmation prompt
     }
@@ -1692,10 +1693,14 @@ Git Diff:
     
     force_push = None  # Initialize to prevent UnboundLocalError in amend paths
     try:
-        # Check if we have a remote to push to
         remotes = run_git_cmd(["remote"])
         if remotes:
-            push_choice = input(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}Push to remote? (y/n) [y]:{c(COLOR_RESET)} ").strip().lower()
+            auto_push = config.get("auto_push", False)
+            if auto_push:
+                push_choice = "y"
+            else:
+                push_choice = input(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}Push to remote? (y/n) [y]:{c(COLOR_RESET)} ").strip().lower()
+            
             if push_choice != "n":
                 if commit_mode in ['amend', 'fresh_amend']:
                     force_push = input(f"{c(COLOR_YELLOW)}This is an amended commit. Force push? (y/n) [y]:{c(COLOR_RESET)} ").strip().lower()
@@ -1707,6 +1712,26 @@ Git Diff:
                 else:
                     push_args = ["git", "push"]
                 
+                if push_args:
+                    # Pull before push safety check for non-force pushes
+                    if config.get("auto_pull", True) and "--force-with-lease" not in push_args:
+                        pull_choice = input(f"{c(COLOR_CYAN)}{c(COLOR_BOLD)}Pull latest changes from remote? (y/n) [y]:{c(COLOR_RESET)} ").strip().lower()
+                        if pull_choice != 'n':
+                            print_info("Pulling latest changes from remote (git pull --rebase)...")
+                            try:
+                                pull_res = subprocess.run(["git", "pull", "--rebase"], capture_output=True, text=True)
+                                if pull_res.returncode == 0:
+                                    print_success("Pull complete.")
+                                else:
+                                    if "no tracking information" in pull_res.stderr.lower() or "no upstream branch" in pull_res.stderr.lower():
+                                        print_info("No upstream tracking branch configured. Skipping pre-push pull.")
+                                    else:
+                                        print_error(f"Pull failed:\n{pull_res.stderr}")
+                                        push_args = None
+                                        print_warn("Aborting push due to pull failure. Please resolve the issue manually.")
+                            except Exception as e:
+                                print_warn(f"Failed to execute git pull: {e}")
+                    
                 if push_args:
                     print_info("Pushing to remote...")
                     try:
