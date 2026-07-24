@@ -54,7 +54,7 @@ This script implements the main execution loop. It is designed to be fully self-
 - `prompt_stage_files(staged, unstaged, untracked)`: Interactive picker with stage (`a`, numbers), unstage (`u`), proceed (`p` to proceed with staged), and quit (`q`) options. Uses an iterative while-loop to prevent recursive stack overflows, and correctly handles empty inputs and the `p` choice to accept pre-staged files. Color-codes statuses: staged is green, modified is yellow, and untracked is red.
 - `show_commit_stats(staged)`: Prints `git diff --stat` and a per-extension file count.
 - `is_binary_file(filepath)`: Reads first 1 KB for null bytes to identify binary files, with checks for file existence to handle deleted files gracefully.
-- `is_env_file(filepath)`: Strict matching for security-sensitive files — returns `True` only for `.env`, `.env.*`, and `.envrc`. Files like `production.env` are not matched.
+- `is_env_file(filepath)`: Strict matching for security-sensitive files — returns `True` for secret `.env`, `.env.*`, and `.envrc` files, but returns `False` for safe template/example files (`.env.template`, `.env.example`, `.env.sample`, `.env.dist`).
 - `should_exclude_from_ai(filepath)`: Checks if a file should be excluded from AI diff analysis. Returns `True` if the file extension is in `AI_PROMPT_EXCLUDED_EXTENSIONS` or if the file is detected as binary.
 
 **Analysis**

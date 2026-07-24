@@ -43,7 +43,7 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 23. 📝 **Loads commit templates** from `.git/COMMIT_TEMPLATE` or `.github/PULL_REQUEST_TEMPLATE.md`
 24. 📦 **GitHub Repository Creation**: Auto-prompts to create a public/private repository on GitHub and push code/tags when no git remote is configured.
 25. 🔁 **Continuous Sessions**: Prompts to optionally restart the tool after completion or errors, allowing multiple commits in a single run without dropping back to the shell.
-26. 🔒 **Security: .env Protection**: Automatically detects and unstages `.env`, `.env.*`, and `.envrc` files to prevent accidental credential leaks. Strict matching avoids false positives on files like `production.env`.
+26. 🔒 **Security: .env Protection**: Automatically detects and unstages `.env`, `.env.*`, and `.envrc` files to prevent accidental credential leaks, while allowing safe template and example files (`.env.template`, `.env.example`, `.env.sample`, `.env.dist`) to be committed normally.
 27. 🤖 **AI Prompt Optimization**: Excludes images, videos, audio, PDFs, and binary files from the Gemini prompt to save tokens and improve analysis quality. Files are still committed normally — only AI analysis is affected.
 
 **A comprehensive Git commit tool** that handles the entire workflow from staging to CI monitoring with excellent error handling and user experience.

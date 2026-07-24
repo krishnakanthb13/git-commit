@@ -69,7 +69,7 @@ This document outlines the core architectural and design decisions behind the AI
 ## 12. Security-First .env Handling
 - **Motivation**: Accidentally committing `.env` files containing API keys, database credentials, or other secrets is one of the most common security mistakes in development. A commit tool should actively prevent this.
 - **Implementation**:
-  - Strict `.env` detection via `is_env_file()` — only matches `.env`, `.env.*`, and `.envrc` (avoids false positives on files like `production.env`)
+  - Strict `.env` detection via `is_env_file()` — matches secret `.env`, `.env.*`, and `.envrc` files while excluding safe template/example files (`.env.template`, `.env.example`, `.env.sample`, `.env.dist`) so templates can be committed freely.
   - Automatically detects and unstages `.env` files with a security warning
   - Recursive re-scan after unstaging to ensure clean file lists
   - AI prompt exclusion list (`AI_PROMPT_EXCLUDED_EXTENSIONS`) prevents binary/media files from being sent to Gemini, saving tokens and avoiding parsing issues while still allowing normal git commits

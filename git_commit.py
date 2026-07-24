@@ -453,8 +453,11 @@ def update_version_in_files(new_version):
 
 
 def is_env_file(filepath):
-    """Check if a file is a .env file or a variant."""
-    name = os.path.basename(filepath)
+    """Check if a file is a secret .env file or a variant (excluding safe templates like .env.template, .env.example, etc.)."""
+    name = os.path.basename(filepath).lower()
+    # Safe templates/examples containing no secrets are intended for git tracking
+    if name.endswith((".template", ".example", ".sample", ".dist")):
+        return False
     return (
         name == ".env"
         or name.startswith(".env.")
