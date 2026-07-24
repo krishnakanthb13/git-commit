@@ -901,7 +901,7 @@ def load_config():
         "max_input_tokens": 900000,  # Reserve some tokens for response (1M - 100K safety margin)
         "auto_push": False,
         "auto_pull": True,
-        "model": "gemini-3.1-flash-lite",
+        "model": "gemini-3.5-flash-lite",
         "auto_tag": False  # Set to True to skip the tagging confirmation prompt
     }
     for path in [".commitgenrc", os.path.expanduser("~/.commitgenrc")]:
@@ -914,6 +914,31 @@ def load_config():
             except Exception as e:
                 print_warn(f"Could not load config from {path}: {e}")
     return defaults
+
+def prompt_select_model(current_model="gemini-3.5-flash-lite"):
+    """Ask user which Gemini model to use, defaulting to 3.5 (gemini-3.5-flash-lite), with options to select 3.1 or custom."""
+    print(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}Select Gemini Model:{c(COLOR_RESET)}")
+    print(f"  {c(COLOR_BOLD)}1{c(COLOR_RESET)}) gemini-3.5-flash-lite {c(COLOR_GREEN)}[Default / 3.5]{c(COLOR_RESET)}")
+    print(f"  {c(COLOR_BOLD)}2{c(COLOR_RESET)}) gemini-3.1-flash-lite [3.1]")
+    print(f"  {c(COLOR_BOLD)}3{c(COLOR_RESET)}) Custom model")
+    
+    choice = input(f"\n{c(COLOR_CYAN)}Choice [1-3] [1]:{c(COLOR_RESET)} ").strip().lower()
+    if choice in ('1', ''):
+        return "gemini-3.5-flash-lite"
+    elif choice in ('2', '3.1'):
+        return "gemini-3.1-flash-lite"
+    elif choice in ('3', 'c', 'custom'):
+        custom = input(f"{c(COLOR_CYAN)}Enter model name: {c(COLOR_RESET)}").strip()
+        return custom if custom else "gemini-3.5-flash-lite"
+    else:
+        if choice in ("3.5", "gemini-3.5", "gemini-3.5-flash-lite"):
+            return "gemini-3.5-flash-lite"
+        elif choice in ("3.1", "gemini-3.1", "gemini-3.1-flash-lite"):
+            return "gemini-3.1-flash-lite"
+        elif choice:
+            return choice
+        return "gemini-3.5-flash-lite"
+
 
 def check_dependencies():
     """Check required tools are available and warn about optional ones."""
@@ -1072,6 +1097,18 @@ def main():
     # Parse flags
     DRY_RUN = "--dry-run" in sys.argv
     NON_INTERACTIVE = "--non-interactive" in sys.argv or is_ci_environment()
+
+    cli_model = None
+    for i, arg in enumerate(sys.argv):
+        if arg.startswith("--model="):
+            cli_model = arg.split("=", 1)[1]
+        elif arg == "--model" and i + 1 < len(sys.argv) and not sys.argv[i + 1].startswith("-"):
+            cli_model = sys.argv[i + 1]
+        elif arg in ("--3.1", "--gemini-3.1"):
+            cli_model = "gemini-3.1-flash-lite"
+        elif arg in ("--3.5", "--gemini-3.5"):
+            cli_model = "gemini-3.5-flash-lite"
+
     if DRY_RUN:
         print_info("DRY RUN MODE — no changes will be committed or pushed.")
     if NON_INTERACTIVE:
@@ -1084,11 +1121,19 @@ def main():
         sys.exit(1)
 
     config = load_config()
-    model = os.getenv("GEMINI_MODEL", config["model"])
-    MAX_DIFF_SIZE = config["max_diff_length"]
 
     show_startup_banner()
-    
+
+    if cli_model:
+        model = cli_model
+    elif NON_INTERACTIVE:
+        model = os.getenv("GEMINI_MODEL", config["model"])
+    else:
+        model_default = os.getenv("GEMINI_MODEL", config["model"])
+        model = prompt_select_model(model_default)
+
+    MAX_DIFF_SIZE = config["max_diff_length"]
+
     # 1. Print Google Gemini model name
     print_info(f"🤖 AI Model: {c(COLOR_GREEN)}Google Gemini - {model}{c(COLOR_RESET)}")
     
@@ -1121,6 +1166,7 @@ def main():
             staged = saved_state.get('staged', [])
             curr_version = saved_state.get('curr_version', '0.0.0')
             commit_mode = saved_state.get('commit_mode', 'new')
+            model = saved_state.get('model', model)
             prompt_text = saved_state.get('prompt_text', '')
             user_context = ""  # not available in resumed session
             diff = "(Diff not available — resumed from saved session)"
@@ -1332,6 +1378,7 @@ Git Diff:
             'staged': staged,
             'curr_version': curr_version,
             'commit_mode': commit_mode,
+            'model': model,
             'prompt_text': prompt_text if 'prompt_text' in locals() else ''
         })
     else:
@@ -1431,13 +1478,16 @@ Git Diff:
         print(f"  {c(COLOR_BOLD)}e{c(COLOR_RESET)}) Edit message")
         if commit_mode == 'new':
             print(f"  {c(COLOR_BOLD)}g{c(COLOR_RESET)}) Regenerate message (AI)")
+            print(f"  {c(COLOR_BOLD)}m{c(COLOR_RESET)}) Switch Gemini model (current: {model})")
             print(f"  {c(COLOR_BOLD)}h{c(COLOR_RESET)}) Version history")
             print(f"  {c(COLOR_BOLD)}v{c(COLOR_RESET)}) Change version bump")
+        else:
+            print(f"  {c(COLOR_BOLD)}m{c(COLOR_RESET)}) Switch Gemini model (current: {model})")
         print(f"  {c(COLOR_BOLD)}d{c(COLOR_RESET)}) View diff")
         print(f"  {c(COLOR_BOLD)}s{c(COLOR_RESET)}) Spell check")
         print(f"  {c(COLOR_BOLD)}x{c(COLOR_RESET)}) Cancel")
 
-        action = input(f"\nAction [c/e/{'g/h/v/' if commit_mode == 'new' else ''}d/s/x]: ").strip().lower()
+        action = input(f"\nAction [c/e/{'g/m/h/v/' if commit_mode == 'new' else 'm/'}d/s/x]: ").strip().lower()
 
         if action == "c":
             break
@@ -1445,6 +1495,35 @@ Git Diff:
             print_info("Commit cancelled.")
             clear_session_state()
             return False
+        elif action == "m":
+            new_model = prompt_select_model(model)
+            if new_model != model:
+                model = new_model
+                print_success(f"Switched model to: {model}")
+                save_session_state({
+                    'summary': summary,
+                    'description': description,
+                    'bump_choice': bump_choice,
+                    'staged': staged,
+                    'curr_version': curr_version,
+                    'commit_mode': commit_mode,
+                    'model': model,
+                    'prompt_text': prompt_text if 'prompt_text' in locals() else ''
+                })
+                if commit_mode == 'new' and prompt_text:
+                    regen = input(f"{c(COLOR_CYAN)}Regenerate commit message using {model}? (y/N) [y]:{c(COLOR_RESET)} ").strip().lower()
+                    if regen != 'n':
+                        print_info(f"Regenerating commit message via {model}...")
+                        try:
+                            ai_res = call_gemini_api(api_key, model, prompt_text)
+                            summary = ai_res.get("summary", "").strip()
+                            description = ai_res.get("description", "").strip()
+                            print_success("New commit message generated!")
+                        except Exception as e:
+                            print_error(f"Regeneration failed: {e}")
+            else:
+                print_info(f"Model unchanged: {model}")
+            continue
         elif action == "d":
             try:
                 subprocess.run(["less", "-R"], input=diff, text=True)
@@ -1505,7 +1584,7 @@ Git Diff:
             if not prompt_text:
                 print_warn("Cannot regenerate - original prompt not available (session resumed).")
                 continue
-            print_info("Regenerating commit message...")
+            print_info(f"Regenerating commit message using {model}...")
             try:
                 ai_res = call_gemini_api(api_key, model, prompt_text)
                 summary = ai_res.get("summary", "").strip()

@@ -128,7 +128,7 @@ The tool supports three commit modes for flexible history management:
     "max_diff_length": 500000,
     "auto_push": False,
     "auto_pull": True,
-    "model": "gemini-3.1-flash-lite",
+    "model": "gemini-3.5-flash-lite",
     "auto_tag": False  # Set to True to skip the tagging confirmation prompt
 }
 ```

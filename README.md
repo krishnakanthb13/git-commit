@@ -1,6 +1,6 @@
 # AI-Powered Git Commit & Version Bumper Tool
 
-A professional, zero-dependency Python CLI tool that uses Google's Gemini API (specifically optimized for `gemini-3.1-flash-lite`) to analyze your git diffs, interactively stage files, generate structured commit summaries/descriptions in a single API call, and automatically manage semantic version updates. Includes powerful amend capabilities to update or replace previous commit messages.
+A professional, zero-dependency Python CLI tool that uses Google's Gemini API (specifically optimized for `gemini-3.5-flash-lite`, with support for switching to `gemini-3.1-flash-lite`) to analyze your git diffs, interactively stage files, generate structured commit summaries/descriptions in a single API call, and automatically manage semantic version updates. Includes powerful amend capabilities to update or replace previous commit messages.
 
 ## Workflow
 
@@ -103,7 +103,7 @@ git-commit/
 2. Open `.env` and configure your `GEMINI_API_KEY`:
    ```env
    GEMINI_API_KEY=your_gemini_api_key_here
-   GEMINI_MODEL=gemini-3.1-flash-lite  # (optional, this is the default)
+   GEMINI_MODEL=gemini-3.5-flash-lite  # (optional, this is the default)
    ```
 
 *Note: The script automatically resolves and loads the `.env` file from the directory where `git_commit.py` is installed/located, so you can execute the command from any folder. If a `.env` file is also present in the current working directory, it will load that as well to allow project-specific overrides.*
@@ -114,15 +114,23 @@ git-commit/
 python git_commit.py              # normal interactive mode
 python git_commit.py --dry-run    # preview commit without making changes
 python git_commit.py --non-interactive  # headless/CI mode (no prompts)
+python git_commit.py --3.5        # force gemini-3.5-flash-lite
+python git_commit.py --3.1        # force gemini-3.1-flash-lite
 ```
 
 **Command-line Options:**
 - `--dry-run`: Preview the commit message and actions without making any changes
 - `--non-interactive`: Run in headless mode (auto-stages all files, no prompts, uses defaults)
+- `--model <name>`, `--3.5`, `--3.1`: Specify Gemini model to use
 
 **Auto-detection:** The tool automatically detects CI environments (GitHub Actions, GitLab CI, Jenkins, Travis) and enables non-interactive mode.
 
 ### Options inside the tool:
+
+**Model Selection Prompt** (appears at interactive startup):
+- `1`: `gemini-3.5-flash-lite` (default)
+- `2`: `gemini-3.1-flash-lite`
+- `3`: Custom model entry
 
 **Commit Mode Selection** (appears at startup if previous commits exist):
 - `n`: Create a NEW commit (default) - includes version bump and tag
@@ -136,6 +144,7 @@ python git_commit.py --non-interactive  # headless/CI mode (no prompts)
 **Review Screen**:
 - `c`: Execute the commit (or amend, depending on mode)
 - `e`: Manually edit the generated summary/description
+- `m`: Switch Gemini model (`gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`, or custom) at will and optionally regenerate
 - `v`: Change version bump (`patch`, `minor`, `major`, `custom:X.Y.Z`, `none`) - **only shown for new commits**
 - `d`: View the full git diff in `less` (with `-R` for color support)
 - `s`: Run a spell-check via `aspell`
@@ -155,6 +164,7 @@ If the tool crashes or is interrupted after generating a commit message, it will
 - Version bump choice
 - Staged files list
 - Current version
+- Selected model
 
 **Note:** Non-interactive mode automatically clears saved sessions to prevent stale state in CI environments.
 
@@ -166,7 +176,7 @@ Create a `.commitgenrc` JSON file in your repo (or `~/.commitgenrc` globally) to
   "max_diff_length": 500000,
   "auto_push": false,
   "auto_pull": true,
-  "model": "gemini-3.1-flash-lite",
+  "model": "gemini-3.5-flash-lite",
   "auto_tag": false
 }
 ```
@@ -182,7 +192,7 @@ Create a `.commitgenrc` JSON file in your repo (or `~/.commitgenrc` globally) to
 - `max_diff_length`: Maximum diff size in characters (default: 500000)
 - `auto_push`: Automatically push after commit (default: false)
 - `auto_pull`: Automatically pull before push (default: true)
-- `model`: Gemini model to use (default: `gemini-3.1-flash-lite`)
+- `model`: Gemini model to use (default: `gemini-3.5-flash-lite`)
 - `auto_tag`: Automatically create/move git tags without confirmation prompt (default: `false` for safety)
 
 ## Windows Right-Click Context Menu Integration

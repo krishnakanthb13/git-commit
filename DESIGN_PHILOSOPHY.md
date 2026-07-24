@@ -9,7 +9,7 @@ This document outlines the core architectural and design decisions behind the AI
 ## 2. High Efficiency & Cost Minimization
 - **Motivation**: Minimize latency, API payload sizes, and Gemini API token consumption.
 - **Implementation**:
-  - Uses cost-effective model (`gemini-3.1-flash-lite`, updated from `gemini-2.0-flash-lite`) by default for optimal price-performance ratio.
+  - Uses cost-effective model (`gemini-3.5-flash-lite`, updated from `gemini-3.1-flash-lite`) by default for optimal price-performance ratio, with on-demand switching to `gemini-3.1-flash-lite` or custom models.
   - Structured output (`responseMimeType: "application/json"`) guarantees the model returns precisely a JSON object containing both `summary` and `description`.
   - Smart Diff Optimization: Large diffs are parsed and truncated thoughtfully. The script prioritizes preserving `diff --git` headers so the model always knows exactly which files were modified, rather than blindly truncating the middle of the alphabet.
   - Binary file detection prevents sending unreadable content to the AI, reducing wasted tokens.
