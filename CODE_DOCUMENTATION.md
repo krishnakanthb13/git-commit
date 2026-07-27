@@ -32,7 +32,7 @@ This script implements the main execution loop. It is designed to be fully self-
 - `print_success(msg)`, `print_info(msg)`, `print_warn(msg)`, `print_error(msg)`: Colored output helpers with NO_COLOR/c() support.
 - `load_dotenv()`: Parses `.env` file without external dependencies. It looks in the directory where the script (`git_commit.py`) is located first, and then in the current working directory.
 - `run_git_cmd(args, strip=True)`: Subprocess wrapper for git commands; returns stdout or `None`.
-- `detect_version()`: Priority order (non-interactive) — git tags → git commit messages → `package.json` → `pyproject.toml` → `0.0.0`. Collects versions from all sources and prompts the user interactively if there is any mismatch. For custom base versions, it automatically prepends `v` if it is missing to maintain consistency.
+- `detect_version()`: Priority order (non-interactive) — git tags → git commit messages → `package.json` → `pyproject.toml` → `0.0.0`. Collects versions from all sources and prompts the user interactively if there is any mismatch (defaulting to choice `1` on empty input). For custom base versions, it automatically prepends `v` if it is missing to maintain consistency.
 - `validate_commit_message(message)`: Validates commit format (72 char limit, conventional format, blank line). Returns list of issues.
 - `check_remote_tag(tag_name)`: Queries remote tags using `git ls-remote --tags origin <tag_name>` to see if the tag already exists on remote.
 - `version_already_tagged(version: str) -> bool`: Checks if version tag already exists locally before allowing a version bump.
@@ -50,8 +50,8 @@ This script implements the main execution loop. It is designed to be fully self-
 
 **File & staging**
 - `get_git_files()`: Parses `git status --porcelain -z` (null-terminated) into staged/unstaged/untracked lists. Automatically detects and unstages `.env` files with a security warning to prevent accidental credential leaks.
-- `prompt_amend_or_new()`: Interactive prompt to select commit mode - new (`n`), amend (`a`), or fresh amend (`f`). Returns the selected mode.
-- `prompt_stage_files(staged, unstaged, untracked)`: Interactive picker with stage (`a`, numbers), unstage (`u`), proceed (`p` to proceed with staged), and quit (`q`) options. Uses an iterative while-loop to prevent recursive stack overflows, and correctly handles empty inputs and the `p` choice to accept pre-staged files. Color-codes statuses: staged is green, modified is yellow, and untracked is red.
+- `prompt_amend_or_new()`: Interactive prompt to select commit mode - new (`n` [default]), amend (`a`), or fresh amend (`f`). Displays options in distinct ANSI colors and defaults to `n` on empty input.
+- `prompt_stage_files(staged, unstaged, untracked)`: Interactive file picker featuring a top status color legend (`staged`: green, `modified`: yellow, `untracked`: red), section divider lines, and color-coded action hotkeys (`a`: stage all [default], `u`: unstage, `r`: refresh status, `p`: proceed, `q`: abort). Includes an `r` hotkey to dynamically refresh git file status and defaults to `a` (Stage all files) on empty input.
 - `show_commit_stats(staged)`: Prints `git diff --stat` and a per-extension file count.
 - `is_binary_file(filepath)`: Reads first 1 KB for null bytes to identify binary files, with checks for file existence to handle deleted files gracefully.
 - `is_env_file(filepath)`: Strict matching for security-sensitive files — returns `True` for secret `.env`, `.env.*`, and `.envrc` files, but returns `False` for safe template/example files (`.env.template`, `.env.example`, `.env.sample`, `.env.dist`).

@@ -137,12 +137,17 @@ python git_commit.py --3.1        # force gemini-3.1-flash-lite
 - `a`: AMEND the last commit - updates message and adds staged changes (no version bump)
 - `f`: FRESH amend - replaces last commit message completely with new AI suggestion (no version bump)
 
-**Staging**: Choose which files to stage (`a` = all, numbers, `u` to unstage, or `p` to proceed with just the staged files). Already-staged files shown in green.
+**Staging**: Enhanced interactive file picker featuring:
+- Top status color legend: `(staged: green, modified: yellow, untracked: red)`
+- Section divider lines for visual clarity
+- Color-coded options: `a` (Stage all [default]), `u` (Unstage), `r` (Refresh status), `p` (Proceed), `q` (Abort)
+- `r` key stroke to dynamically refresh file status without leaving the menu
+- Pressing Enter on empty input defaults to `a` (Stage all files)
 
 **Context**: Provide optional notes to steer the AI. You can also specify version in context (e.g., "v1.2.3") for auto-detection.
 
 **Review Screen**:
-- `c`: Execute the commit (or amend, depending on mode)
+- `c`: Execute the commit or amend (default on Enter)
 - `e`: Manually edit the generated summary/description
 - `m`: Switch Gemini model (`gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`, or custom) at will and optionally regenerate
 - `v`: Change version bump (`patch`, `minor`, `major`, `custom:X.Y.Z`, `none`) - **only shown for new commits**

@@ -536,11 +536,11 @@ def get_git_files():
 def prompt_amend_or_new():
     """Ask user whether to amend last commit or create new one."""
     print(f"\n{c(COLOR_MAGENTA)}{c(COLOR_BOLD)}Commit Action:{c(COLOR_RESET)}")
-    print(f"  {c(COLOR_BOLD)}n{c(COLOR_RESET)}) New commit")
-    print(f"  {c(COLOR_BOLD)}a{c(COLOR_RESET)}) Amend previous commit (add files, update message)")
-    print(f"  {c(COLOR_BOLD)}f{c(COLOR_RESET)}) Fresh amend (add files, generate new AI message)")
+    print(f"  {c(COLOR_GREEN)}{c(COLOR_BOLD)}n{c(COLOR_RESET)}) New commit")
+    print(f"  {c(COLOR_YELLOW)}{c(COLOR_BOLD)}a{c(COLOR_RESET)}) Amend previous commit (add files, update message)")
+    print(f"  {c(COLOR_CYAN)}{c(COLOR_BOLD)}f{c(COLOR_RESET)}) Fresh amend (add files, generate new AI message)")
     
-    choice = input(f"\n{c(COLOR_CYAN)}Action [n/a/f]:{c(COLOR_RESET)} ").strip().lower()
+    choice = input(f"\n{c(COLOR_CYAN)}Action [n/a/f] [n]:{c(COLOR_RESET)} ").strip().lower()
     if choice == 'a':
         return 'amend'
     elif choice == 'f':
@@ -551,6 +551,7 @@ def prompt_amend_or_new():
 def prompt_stage_files(staged, unstaged, untracked):
     """Always show full file picker so user can review/add files before committing."""
     while True:
+        staged, unstaged, untracked = get_git_files()
         all_available = (
             [(f, "staged")    for f in staged] +
             [(f, "modified")  for f in unstaged] +
@@ -560,6 +561,8 @@ def prompt_stage_files(staged, unstaged, untracked):
             return False
 
         print_info("Select files to stage/commit:")
+        print(f"  ({c(COLOR_GREEN)}staged: green{c(COLOR_RESET)}, {c(COLOR_YELLOW)}modified: yellow{c(COLOR_RESET)}, {c(COLOR_RED)}untracked: red{c(COLOR_RESET)})")
+        print(f"  {'-' * 45}")
         for idx, (f, status) in enumerate(all_available, 1):
             if status == "staged":
                 color = c(COLOR_GREEN)
@@ -569,15 +572,23 @@ def prompt_stage_files(staged, unstaged, untracked):
                 color = c(COLOR_RED)
             print(f"  {c(COLOR_BOLD)}{idx}{c(COLOR_RESET)}) [{color}{status}{c(COLOR_RESET)}] {f}")
         
-        print(f"  {c(COLOR_BOLD)}a{c(COLOR_RESET)}) Stage all files")
-        print(f"  {c(COLOR_BOLD)}u{c(COLOR_RESET)}) Unstage specific files")
-        print(f"  {c(COLOR_BOLD)}p{c(COLOR_RESET)}) Proceed with staged files")
-        print(f"  {c(COLOR_BOLD)}q{c(COLOR_RESET)}) Abort")
-        print(f"\n  {c(COLOR_CYAN)}(staged: green, modified: yellow, untracked: red){c(COLOR_RESET)}")
+        print(f"  {'-' * 45}")
+        print(f"  {c(COLOR_GREEN)}{c(COLOR_BOLD)}a{c(COLOR_RESET)}) Stage all files")
+        print(f"  {c(COLOR_YELLOW)}{c(COLOR_BOLD)}u{c(COLOR_RESET)}) Unstage specific files")
+        print(f"  {c(COLOR_MAGENTA)}{c(COLOR_BOLD)}r{c(COLOR_RESET)}) Refresh status")
+        print(f"  {c(COLOR_CYAN)}{c(COLOR_BOLD)}p{c(COLOR_RESET)}) Proceed with staged files")
+        print(f"  {c(COLOR_RED)}{c(COLOR_BOLD)}q{c(COLOR_RESET)}) Abort")
 
-        choice = input("\nAction [comma-separated numbers or a/u/p/q]: ").strip().lower()
+        choice = input("\nAction [comma-separated numbers or a/u/r/p/q] [a]: ").strip().lower()
+        if choice == '':
+            choice = 'a'
+
         if choice == 'q':
             return "quit"
+        elif choice == 'r':
+            staged, unstaged, untracked = get_git_files()
+            print_info("Refreshed file status.")
+            continue
         elif choice == 'a':
             for f, _ in all_available:
                 run_git_cmd(["add", f])
@@ -597,7 +608,10 @@ def prompt_stage_files(staged, unstaged, untracked):
             for idx, f in enumerate(staged, 1):
                 print(f"  {c(COLOR_BOLD)}{idx}{c(COLOR_RESET)}) {f}")
             
-            unstage_choice = input("\nSelect files [comma-separated numbers]: ").strip()
+            unstage_choice = input("\nSelect files [comma-separated numbers] (press Enter to cancel): ").strip()
+            if not unstage_choice:
+                print_info("Cancelled unstaging.")
+                continue
             try:
                 for part in unstage_choice.split(","):
                     part = part.strip()
@@ -1477,20 +1491,22 @@ Git Diff:
                 print(f"  - {c(COLOR_YELLOW)}{issue}{c(COLOR_RESET)}")
 
         print(f"\nOptions:")
-        print(f"  {c(COLOR_BOLD)}c{c(COLOR_RESET)}) Commit")
-        print(f"  {c(COLOR_BOLD)}e{c(COLOR_RESET)}) Edit message")
+        print(f"  {c(COLOR_GREEN)}{c(COLOR_BOLD)}c{c(COLOR_RESET)}) Commit")
+        print(f"  {c(COLOR_YELLOW)}{c(COLOR_BOLD)}e{c(COLOR_RESET)}) Edit message")
         if commit_mode == 'new':
-            print(f"  {c(COLOR_BOLD)}g{c(COLOR_RESET)}) Regenerate message (AI)")
-            print(f"  {c(COLOR_BOLD)}m{c(COLOR_RESET)}) Switch Gemini model (current: {model})")
-            print(f"  {c(COLOR_BOLD)}h{c(COLOR_RESET)}) Version history")
-            print(f"  {c(COLOR_BOLD)}v{c(COLOR_RESET)}) Change version bump")
+            print(f"  {c(COLOR_CYAN)}{c(COLOR_BOLD)}g{c(COLOR_RESET)}) Regenerate message (AI)")
+            print(f"  {c(COLOR_MAGENTA)}{c(COLOR_BOLD)}m{c(COLOR_RESET)}) Switch Gemini model (current: {model})")
+            print(f"  {c(COLOR_CYAN)}{c(COLOR_BOLD)}h{c(COLOR_RESET)}) Version history")
+            print(f"  {c(COLOR_YELLOW)}{c(COLOR_BOLD)}v{c(COLOR_RESET)}) Change version bump")
         else:
-            print(f"  {c(COLOR_BOLD)}m{c(COLOR_RESET)}) Switch Gemini model (current: {model})")
-        print(f"  {c(COLOR_BOLD)}d{c(COLOR_RESET)}) View diff")
-        print(f"  {c(COLOR_BOLD)}s{c(COLOR_RESET)}) Spell check")
-        print(f"  {c(COLOR_BOLD)}x{c(COLOR_RESET)}) Cancel")
+            print(f"  {c(COLOR_MAGENTA)}{c(COLOR_BOLD)}m{c(COLOR_RESET)}) Switch Gemini model (current: {model})")
+        print(f"  {c(COLOR_CYAN)}{c(COLOR_BOLD)}d{c(COLOR_RESET)}) View diff")
+        print(f"  {c(COLOR_MAGENTA)}{c(COLOR_BOLD)}s{c(COLOR_RESET)}) Spell check")
+        print(f"  {c(COLOR_RED)}{c(COLOR_BOLD)}x{c(COLOR_RESET)}) Cancel")
 
-        action = input(f"\nAction [c/e/{'g/m/h/v/' if commit_mode == 'new' else 'm/'}d/s/x]: ").strip().lower()
+        action = input(f"\nAction [c/e/{'g/m/h/v/' if commit_mode == 'new' else 'm/'}d/s/x] [c]: ").strip().lower()
+        if not action:
+            action = "c"
 
         if action == "c":
             break
@@ -1610,7 +1626,7 @@ Git Diff:
             print(f"  {c(COLOR_BOLD)}n{c(COLOR_RESET)}) ⏸️  None  → {c(COLOR_GREEN)}{curr_version}{c(COLOR_RESET)} (keep current)")
             print(f"  {c(COLOR_BOLD)}c{c(COLOR_RESET)}) ✏️  Custom version")
             
-            v_bump = input("\nSelect bump type [p/m/j/n/c]: ").strip().lower()
+            v_bump = input("\nSelect bump type [p/m/j/n/c] [p]: ").strip().lower()
             if v_bump == 'm':
                 bump_choice = "minor"
             elif v_bump == 'j':
