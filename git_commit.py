@@ -247,7 +247,9 @@ def detect_version():
     print(f"  {c(COLOR_BOLD)}{len(valid_choices)+1}{c(COLOR_RESET)}) Custom base version")
 
     while True:
-        choice = input(f"Choice [1-{len(valid_choices)+1}]: ").strip()
+        choice = input(f"Choice [1-{len(valid_choices)+1}] [1]: ").strip()
+        if not choice:
+            choice = "1"
         try:
             val = int(choice)
             if 1 <= val <= len(valid_choices):
