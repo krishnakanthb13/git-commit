@@ -226,41 +226,76 @@ def detect_version():
         if ver:
             valid_choices.append((ver, name))
 
-    non_interactive = "--non-interactive" in sys.argv or any(
-        os.getenv(v) for v in ['CI', 'GITHUB_ACTIONS', 'GITLAB_CI', 'JENKINS_URL', 'TRAVIS']
-    )
+    def parse_semver_key(v_str):
+        clean = v_str.lstrip("vV")
+        # Extract all numeric segments (e.g. "1.1.1.11" -> (1, 1, 1, 11))
+        parts = re.findall(r"\d+", clean)
+        if parts:
+            return tuple(int(p) for p in parts)
+        return (0, 0, 0)
 
     if not valid_choices:
         print_info("No versions found. Defaulting to 0.0.0.")
         return "0.0.0", "default"
 
+    # Find max length of version key tuples to normalize length for consistent comparisons
+    parsed_keys = [parse_semver_key(v[0]) for v in valid_choices]
+    max_len = max(len(k) for k in parsed_keys) if parsed_keys else 3
+
+    def parse_normalized_key(v_str):
+        key = parse_semver_key(v_str)
+        return key + (0,) * (max_len - len(key))
+
+    # Filter unique version entries and sort by version descending (highest version first)
+    valid_choices.sort(key=lambda x: parse_normalized_key(x[0]), reverse=True)
+    highest_version = valid_choices[0][0]
+    highest_key = parse_normalized_key(highest_version)
+
+    non_interactive = "--non-interactive" in sys.argv or any(
+        os.getenv(v) for v in ['CI', 'GITHUB_ACTIONS', 'GITLAB_CI', 'JENKINS_URL', 'TRAVIS']
+    )
+
     if non_interactive:
-        # Auto-select the first available version
+        # Auto-select the highest available version
         return valid_choices[0][0], valid_choices[0][1]
 
-    # Present list to user to select
-    print(f"\n{c(COLOR_CYAN)}Select base version for bumping:{c(COLOR_RESET)}")
-    for idx, (ver, name) in enumerate(valid_choices, 1):
-        print(f"  {c(COLOR_BOLD)}{idx}{c(COLOR_RESET)}) {ver} (from {name})")
-    
-    # Allow custom version as well
-    print(f"  {c(COLOR_BOLD)}{len(valid_choices)+1}{c(COLOR_RESET)}) Custom base version")
-
     while True:
+        # Present list to user to select
+        print(f"\n{c(COLOR_CYAN)}Select base version for bumping:{c(COLOR_RESET)}")
+        for idx, (ver, name) in enumerate(valid_choices, 1):
+            print(f"  {c(COLOR_BOLD)}{idx}{c(COLOR_RESET)}) {ver} (from {name})")
+        
+        # Allow custom version as well
+        print(f"  {c(COLOR_BOLD)}{len(valid_choices)+1}{c(COLOR_RESET)}) Custom base version")
+
         choice = input(f"Choice [1-{len(valid_choices)+1}] [1]: ").strip()
         if not choice:
             choice = "1"
         try:
             val = int(choice)
             if 1 <= val <= len(valid_choices):
-                selected = valid_choices[val-1]
-                return selected[0], selected[1]
+                selected_ver, selected_name = valid_choices[val-1]
+                selected_key = parse_normalized_key(selected_ver)
+                if selected_key < highest_key:
+                    print_warn(f"Selected version '{selected_ver}' is lower than the highest available version '{highest_version}'.")
+                    confirm = input("Are you sure you want to proceed with this lower version? (y/N) [n]: ").strip().lower()
+                    if confirm != 'y':
+                        print_info("Returning to version selection...")
+                        continue
+                return selected_ver, selected_name
             elif val == len(valid_choices) + 1:
                 custom_base = input("Custom base version (e.g. 1.0.0): ").strip()
                 if not custom_base:
                     custom_base = "0.0.0"
                 if not custom_base.lower().startswith('v'):
                     custom_base = "v" + custom_base
+                custom_key = parse_normalized_key(custom_base)
+                if custom_key < highest_key:
+                    print_warn(f"Selected custom version '{custom_base}' is lower than the highest available version '{highest_version}'.")
+                    confirm = input("Are you sure you want to proceed with this lower version? (y/N) [n]: ").strip().lower()
+                    if confirm != 'y':
+                        print_info("Returning to version selection...")
+                        continue
                 return custom_base, "custom user entry"
         except ValueError:
             pass
@@ -391,35 +426,42 @@ def update_changelog(version, summary, description):
     run_git_cmd(["add", changelog_path])
 
 def increment_version(version_str, bump_type):
-    """Increment version by bump type (patch, minor, major)."""
-    # Remove leading 'v' if present
-    clean_version = version_str.lstrip("vV")
-    parts = clean_version.split(".")
-    if len(parts) != 3:
-        # Fallback if not standard semver
-        return version_str
-
+    """Increment version by bump type (patch, minor, major). Supports N-part versions."""
     if bump_type.startswith("custom:"):
         return bump_type.split(":", 1)[1]
 
+    prefix = "v" if version_str.lower().startswith("v") else ""
+    clean_version = version_str.lstrip("vV")
+    parts_raw = clean_version.split(".")
+
+    # Ensure integer components
     try:
-        major, minor, patch = map(int, parts)
+        int_parts = [int(p) for p in parts_raw]
     except ValueError:
         return version_str
 
+    if not int_parts:
+        return version_str
+
+    # Pad with zeros if fewer than 3 components (e.g. 1.2 -> 1.2.0)
+    while len(int_parts) < 3:
+        int_parts.append(0)
+
     if bump_type == "major":
-        major += 1
-        minor = 0
-        patch = 0
+        int_parts[0] += 1
+        for i in range(1, len(int_parts)):
+            int_parts[i] = 0
     elif bump_type == "minor":
-        minor += 1
-        patch = 0
+        if len(int_parts) > 1:
+            int_parts[1] += 1
+            for i in range(2, len(int_parts)):
+                int_parts[i] = 0
+        else:
+            int_parts[0] += 1
     elif bump_type == "patch":
-        patch += 1
-    
-    # Preserve leading 'v' if original had it
-    prefix = "v" if version_str.lower().startswith("v") else ""
-    return f"{prefix}{major}.{minor}.{patch}"
+        int_parts[-1] += 1
+
+    return f"{prefix}{'.'.join(map(str, int_parts))}"
 
 def update_version_in_files(new_version):
     """Update version in package.json and pyproject.toml if they exist."""
