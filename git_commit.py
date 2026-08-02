@@ -604,6 +604,7 @@ def prompt_stage_files(staged, unstaged, untracked):
         if not all_available:
             return False
 
+        print()
         print_info("Select files to stage/commit:")
         print(f"  ({c(COLOR_GREEN)}staged: green{c(COLOR_RESET)}, {c(COLOR_YELLOW)}modified: yellow{c(COLOR_RESET)}, {c(COLOR_RED)}untracked: red{c(COLOR_RESET)})")
         print(f"  {'-' * 45}")
@@ -837,16 +838,19 @@ def call_gemini_api(api_key, model, prompt_text):
                     print_info("  2. Decrease max_diff_length in config")
                     raise RuntimeError(f"Context window exceeded: {err_msg}")
             if e.code in [429, 503] and attempt < max_retries:
-                print_warn(f"Gemini API returned {e.code}. Retrying in {2 ** attempt}s ({attempt}/{max_retries})...")
-                time.sleep(2 ** attempt)
+                backoff = 5 * (2 ** attempt)  # 10s, 20s
+                print_warn(f"API rate limited ({e.code}). Retrying in {backoff}s ({attempt}/{max_retries})...")
+                time.sleep(backoff)
                 continue
-            raise RuntimeError(f"Gemini API request failed: {e.code} - {err_msg}")
+            raise RuntimeError(f"HTTP {e.code}: {err_msg}")
         except Exception as e:
             if attempt < max_retries:
-                print_warn(f"API connection error: {e}. Retrying in {2 ** attempt}s ({attempt}/{max_retries})...")
-                time.sleep(2 ** attempt)
+                backoff = 5 * (2 ** attempt)  # 10s, 20s
+                err_msg_str = "Connection timed out" if "timed out" in str(e).lower() else str(e)
+                print_warn(f"{err_msg_str}. Retrying in {backoff}s ({attempt}/{max_retries})...")
+                time.sleep(backoff)
                 continue
-            raise RuntimeError(f"An error occurred: {e}")
+            raise RuntimeError(f"Connection failed: {e}")
 
 def check_spelling(text):
     """Basic spell check using system spell checker."""
@@ -1083,7 +1087,7 @@ def show_startup_banner():
     """Display a clear startup banner with project context."""
     print(f"\n{c(COLOR_MAGENTA)}{c(COLOR_BOLD)}{'='*60}{c(COLOR_RESET)}")
     print(f"{c(COLOR_MAGENTA)}{c(COLOR_BOLD)}  CommitGen - AI-Powered Git Commit Generator{c(COLOR_RESET)}")
-    print(f"{c(COLOR_MAGENTA)}{c(COLOR_BOLD)}{'='*60}{c(COLOR_RESET)}\n")
+    print(f"{c(COLOR_MAGENTA)}{c(COLOR_BOLD)}{'='*60}{c(COLOR_RESET)}")
 
 def show_folder_structure(startpath, max_depth=3, max_files_per_dir=10):
     """Display a clean tree view of the project structure."""
@@ -1209,6 +1213,46 @@ def main():
 
     # 4. Print Configuration Summary
     print_info(f"Configuration: diff limit={MAX_DIFF_SIZE//1000}K chars, default bump={config.get('default_bump', 'patch')}")
+
+    # Startup Git Pull Check (Stash uncommitted/staged changes, pull rebase, and restore stash)
+    remotes = run_git_cmd(["remote"])
+    if remotes and config.get("auto_pull", True):
+        if NON_INTERACTIVE:
+            do_start_pull = True
+        else:
+            pull_start_choice = input(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}Pull latest changes from remote at startup? (y/n) [y]:{c(COLOR_RESET)} ").strip().lower()
+            do_start_pull = (pull_start_choice != 'n')
+        
+        if do_start_pull:
+            print_info("Checking and pulling latest changes from remote at startup (git pull --rebase)...")
+            stashed = False
+            # Check if there are any uncommitted / staged / untracked changes to stash
+            status_out = run_git_cmd(["status", "--porcelain"])
+            if status_out:
+                print_info("Stashing uncommitted/staged changes before pull...")
+                stash_res = run_git_cmd(["stash", "--include-untracked"])
+                if stash_res and "No local changes to save" not in stash_res:
+                    stashed = True
+            
+            pull_res = subprocess.run(["git", "pull", "--rebase"], capture_output=True, text=True)
+            if pull_res.returncode == 0:
+                print_success("Startup pull complete.")
+            else:
+                if "no tracking information" in pull_res.stderr.lower() or "no upstream branch" in pull_res.stderr.lower():
+                    print_info("No upstream tracking branch configured. Skipping startup pull.")
+                else:
+                    print_warn(f"Startup pull encountered warnings/errors:\n{pull_res.stderr.strip()}")
+            
+            if stashed:
+                print_info("Restoring stashed changes...")
+                pop_res = subprocess.run(["git", "stash", "pop"], capture_output=True, text=True)
+                if pop_res.returncode != 0:
+                    print_error(f"Conflict encountered while restoring stashed changes:\n{pop_res.stderr.strip()}")
+                    print_error("Aborting commit process. Please resolve stash conflicts manually before running CommitGen.")
+                    return False
+                else:
+                    print_success("Stashed changes restored successfully.")
+            # print()  # Visual spacing after startup pull
 
     # Session recovery
     saved_state = load_session_state()
@@ -1412,24 +1456,62 @@ Git Diff:
 {diff}
 ```
 """
-            try:
-                ai_res = call_gemini_api(api_key, model, prompt_text)
-                summary = ai_res.get("summary", "").strip()
-                description = ai_res.get("description", "").strip()
-            except Exception as e:
-                print_error(f"Failed to generate commit message: {e}")
-                if commit_mode == 'fresh_amend':
-                    last_msg = get_last_commit_message()
-                    if last_msg:
-                        lines = last_msg.split('\n')
-                        summary = lines[0] if lines else "update: code modifications"
-                        description = '\n'.join(lines[1:]) if len(lines) > 1 else "- Minor changes/updates"
+            while True:
+                try:
+                    ai_res = call_gemini_api(api_key, model, prompt_text)
+                    summary = ai_res.get("summary", "").strip()
+                    description = ai_res.get("description", "").strip()
+                    break
+                except Exception as e:
+                    print_error(f"Gemini API request failed ({e})")
+                    
+                    if NON_INTERACTIVE:
+                        # In non-interactive/CI mode, fall back to defaults directly
+                        if commit_mode == 'fresh_amend':
+                            last_msg = get_last_commit_message()
+                            if last_msg:
+                                lines = last_msg.split('\n')
+                                summary = lines[0] if lines else "update: code modifications"
+                                description = '\n'.join(lines[1:]) if len(lines) > 1 else "- Minor changes/updates"
+                            else:
+                                summary = "update: code modifications"
+                                description = "- Minor changes/updates"
+                        else:
+                            summary = "update: code modifications"
+                            description = "- Minor changes/updates"
+                        break
+                    
+                    print(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}API call failed. How would you like to proceed?{c(COLOR_RESET)}")
+                    print(f"  {c(COLOR_BOLD)}1{c(COLOR_RESET)}) Retry Gemini AI call (wait 30s)")
+                    print(f"  {c(COLOR_BOLD)}2{c(COLOR_RESET)}) Enter custom summary and description manually")
+                    print(f"  {c(COLOR_BOLD)}3{c(COLOR_RESET)}) Use default summary/description ('update: code modifications')")
+                    
+                    fail_choice = input(f"\nAction [1/2/3] [1]: ").strip()
+                    if not fail_choice or fail_choice == '1':
+                        print_info("Waiting 30 seconds before retrying Gemini API...")
+                        time.sleep(30)
+                        print_info("Retrying Gemini AI call...")
+                        continue
+                    elif fail_choice == '2':
+                        summary = input("Enter summary: ").strip()
+                        if not summary:
+                            summary = "update: code modifications"
+                        description = input("Enter description (optional, bullet points): ").strip()
+                        break
                     else:
-                        summary = "update: code modifications"
-                        description = "- Minor changes/updates"
-                else:
-                    summary = "update: code modifications"
-                    description = "- Minor changes/updates"
+                        if commit_mode == 'fresh_amend':
+                            last_msg = get_last_commit_message()
+                            if last_msg:
+                                lines = last_msg.split('\n')
+                                summary = lines[0] if lines else "update: code modifications"
+                                description = '\n'.join(lines[1:]) if len(lines) > 1 else "- Minor changes/updates"
+                            else:
+                                summary = "update: code modifications"
+                                description = "- Minor changes/updates"
+                        else:
+                            summary = "update: code modifications"
+                            description = "- Minor changes/updates"
+                        break
 
         # Save session state in case of crash
         save_session_state({
