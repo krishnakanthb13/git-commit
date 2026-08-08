@@ -1217,13 +1217,19 @@ def main():
     # Startup Git Pull Check (Stash uncommitted/staged changes, pull rebase, and restore stash)
     remotes = run_git_cmd(["remote"])
     if remotes and config.get("auto_pull", True):
-        if NON_INTERACTIVE:
-            do_start_pull = True
-        else:
-            pull_start_choice = input(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}Pull latest changes from remote at startup? (y/n) [y]:{c(COLOR_RESET)} ").strip().lower()
-            do_start_pull = (pull_start_choice != 'n')
-        
-        if do_start_pull:
+        default_start_pull_prompt = "y"
+        while True:
+            if NON_INTERACTIVE:
+                do_start_pull = True
+            else:
+                prompt_label = f"Pull latest changes from remote at startup? (y/n) [{default_start_pull_prompt}]:"
+                raw_choice = input(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}{prompt_label}{c(COLOR_RESET)} ").strip().lower()
+                pull_start_choice = raw_choice if raw_choice != "" else default_start_pull_prompt
+                do_start_pull = (pull_start_choice != 'n')
+            
+            if not do_start_pull:
+                break
+
             print_info("Checking and pulling latest changes from remote at startup (git pull --rebase)...")
             stashed = False
             # Check if there are any uncommitted / staged / untracked changes to stash
@@ -1235,11 +1241,16 @@ def main():
                     stashed = True
             
             pull_res = subprocess.run(["git", "pull", "--rebase"], capture_output=True, text=True)
+            retry_startup = False
             if pull_res.returncode == 0:
                 print_success("Startup pull complete.")
             else:
                 if "no tracking information" in pull_res.stderr.lower() or "no upstream branch" in pull_res.stderr.lower():
                     print_info("No upstream tracking branch configured. Skipping startup pull.")
+                elif "cannot pull with rebase: you have unstaged changes" in pull_res.stderr.lower() or "please commit or stash them" in pull_res.stderr.lower():
+                    print_error(f"Startup pull failed:\n{pull_res.stderr.strip()}")
+                    default_start_pull_prompt = "n"
+                    retry_startup = True
                 else:
                     print_warn(f"Startup pull encountered warnings/errors:\n{pull_res.stderr.strip()}")
             
@@ -1252,6 +1263,10 @@ def main():
                     return False
                 else:
                     print_success("Stashed changes restored successfully.")
+
+            if retry_startup:
+                continue
+            break
             # print()  # Visual spacing after startup pull
 
     # Session recovery
@@ -1919,13 +1934,19 @@ Git Diff:
     try:
         remotes = run_git_cmd(["remote"])
         if remotes:
-            auto_push = config.get("auto_push", False)
-            if auto_push:
-                push_choice = "y"
-            else:
-                push_choice = input(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}Push to remote? (y/n) [y]:{c(COLOR_RESET)} ").strip().lower()
-            
-            if push_choice != "n":
+            default_push_prompt = "y"
+            while True:
+                auto_push = config.get("auto_push", False)
+                if auto_push:
+                    push_choice = "y"
+                else:
+                    prompt_label = f"Push to remote? (y/n) [{default_push_prompt}]:"
+                    raw_input = input(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}{prompt_label}{c(COLOR_RESET)} ").strip().lower()
+                    push_choice = raw_input if raw_input != "" else default_push_prompt
+                
+                if push_choice == "n":
+                    break
+
                 if commit_mode in ['amend', 'fresh_amend']:
                     force_push = input(f"{c(COLOR_YELLOW)}This is an amended commit. Force push? (y/n) [y]:{c(COLOR_RESET)} ").strip().lower()
                     if force_push != 'n':
@@ -1936,6 +1957,7 @@ Git Diff:
                 else:
                     push_args = ["git", "push"]
                 
+                retry_push = False
                 if push_args:
                     # Pull before push safety check for non-force pushes
                     if config.get("auto_pull", True) and "--force-with-lease" not in push_args:
@@ -1952,9 +1974,16 @@ Git Diff:
                                     else:
                                         print_error(f"Pull failed:\n{pull_res.stderr}")
                                         push_args = None
-                                        print_warn("Aborting push due to pull failure. Please resolve the issue manually.")
+                                        if "cannot pull with rebase: you have unstaged changes" in pull_res.stderr.lower() or "please commit or stash them" in pull_res.stderr.lower():
+                                            default_push_prompt = "n"
+                                            retry_push = True
+                                        else:
+                                            print_warn("Aborting push due to pull failure. Please resolve the issue manually.")
                             except Exception as e:
                                 print_warn(f"Failed to execute git pull: {e}")
+                    
+                if retry_push:
+                    continue
                     
                 if push_args:
                     print_info("Pushing to remote...")
@@ -2002,6 +2031,8 @@ Git Diff:
                         
                     except subprocess.CalledProcessError as e:
                         print_error(f"Push failed: {e}")
+                
+                break
             else:
                 print_info("Skipped push. Run 'git push' manually when ready.")
         else:

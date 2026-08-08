@@ -29,7 +29,7 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 9. 🔍 **Detects binary files** and scopes from file paths
 10. 🔗 **Links issues** from branches/commits
 11. 💾 **Saves session state** for crash recovery (includes commit mode and amend state)
-12. 🚀 **Pushes to remote** with multiple tags support, force push warnings for amended commits, and remote tag conflict prompts
+12. 🚀 **Pushes to remote** with multiple tags support, force push warnings for amended commits, remote tag conflict prompts, and interactive retry fallback (loops back with default `[n]` if `git pull --rebase` fails due to unstaged changes at startup or pre-push).
 13. 🔧 **Creates Pull Requests** via GitHub CLI
 14. 👀 **Monitors CI pipelines** after push
 15. 🎨 **Beautiful CLI interface** with colors
