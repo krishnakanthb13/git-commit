@@ -1343,17 +1343,22 @@ def main():
             # In CI mode: auto-stage all and proceed
             for f in unstaged + untracked:
                 run_git_cmd(["add", f])
-            staged, _, _ = get_git_files()
+            staged, _, _, details = get_git_files(include_details=True)
         else:
             if prompt_stage_files(staged, unstaged, untracked) == "quit":
                 return False
-            staged, _, _ = get_git_files()
+            staged, _, _, details = get_git_files(include_details=True)
 
         if not staged:
             print_error("No files staged for commit.")
             sys.exit(1)
 
-        print_info(f"Staged files for commit:\n" + "\n".join(f"  - {f}" for f in staged))
+        print_info("Staged files for commit:")
+        for f in staged:
+            st_info = details.get(f, {}).get("staged", "staged")
+            orig = details.get(f, {}).get("orig_path")
+            display_name = f"{orig} -> {f}" if orig else f
+            print(f"  - [{c(COLOR_GREEN)}{st_info}{c(COLOR_RESET)}] {display_name}")
 
         # Warn about binary files
         binary_files = [f for f in staged if os.path.exists(f) and is_binary_file(f)]
