@@ -67,13 +67,14 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 - ⚙️ **Configurable**: Per-repo `.commitgenrc` JSON config for default bump type, diff size, and model. Global config via `~/.commitgenrc`.
 - 🚀 **CI/CD Ready**: `--dry-run` and `--non-interactive` flags for headless/automated environments. Auto-detects CI environments (GitHub Actions, GitLab CI, Jenkins, Travis).
 - 🔍 **Commit Validation**: Validates commit messages against conventional commit format (72 char limit, proper format, blank line after title). Shows warnings in review screen for format violations and version tag collisions.
-- 📊 **Commit Statistics**: Shows detailed stats with per-extension file counts before committing.
+- 📊 **Commit Statistics**: Shows detailed colorized stats (green `+` insertions, red `-` deletions) with per-extension file counts before committing.
 - 🔤 **Spell Checking**: Optional spell-check via system `aspell` command (press `s` in review screen).
 - 🛠️ **Interactive UI**:
+  - **Header Status Badge**: Shows active project folder, AI model, and branch status with upstream sync indicators (`🌿 Branch: main [up to date]`)
   - **Commit Mode Selection**: Choose between new commit, amend, or fresh amend at startup
-  - Stage, unstage (`u`), and proceed (`p`) with already-staged files using an interactive picker loop with granular status tags (`staged: modified`, `staged: untracked`, `staged: renamed`, `staged: deleted`) and rename mappings (`old -> new`)
-  - Review, edit (`e`), spell-check (`s`), or preview diffs (`d`) before committing
-  - Version bump options (`v`) only shown for new commits (amend mode skips version bump by default)
+  - **Interactive Staging & Range Selection**: Stage, unstage (`u`), and proceed (`p`) with granular status tags (`staged: modified`, `staged: untracked`, `staged: renamed`, `staged: deleted`) and rename mappings (`old -> new`). Supports comma-separated numbers, ranges (e.g. `1,3-5`), and keywords (`all`, `*`).
+  - Review, edit (`e`), spell-check (`s`), or preview diffs (`d`) before committing, with granular staged badges displayed under `Files to commit:`
+  - Color-coded version bump options (`v`) with semantic highlights (patch: green, minor: cyan, major: magenta, none: yellow) — only shown for new commits
   - Monitor CI pipelines live directly after pushing
   - Validation warnings (including version tag collision warning) displayed in review screen
   - **GitHub Repository Creation**: Interactively prompts to create a public/private GitHub repository if no remote is configured (requires `gh` CLI).
@@ -83,7 +84,7 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 
 ```
 git-commit/
-├── git_commit.py              ← main tool (~2,130 lines)
+├── git_commit.py              ← main tool (~2,236 lines)
 ├── register.py                ← install/uninstall context menu (winreg)
 ├── .env.template              ← copy to .env and add your API key
 ├── .env                       ← local configuration (contains API key, gitignored)
@@ -132,6 +133,9 @@ python git_commit.py --3.1        # force gemini-3.1-flash-lite
 - `2`: `gemini-3.1-flash-lite`
 - `3`: Custom model entry
 
+**Startup Remote Pull**:
+- Prompts whether to pull latest changes from remote (defaults to `n` on Enter so uncommitted work is not unexpectedly rebased unless requested).
+
 **Commit Mode Selection** (appears at startup if previous commits exist):
 - `n`: Create a NEW commit (default) - includes version bump and tag
 - `a`: AMEND the last commit - updates message and adds staged changes (no version bump)
@@ -140,9 +144,10 @@ python git_commit.py --3.1        # force gemini-3.1-flash-lite
 **Staging**: Enhanced interactive file picker featuring:
 - Granular staging status tags: `[staged: modified]`, `[staged: untracked]`, `[staged: renamed]`, `[staged: deleted]` alongside unstaged `[modified]`, `[deleted]`, and `[untracked]`
 - Origin path tracking for renames (e.g., `old_path -> new_path`)
+- Flexible input parsing: supports comma-separated numbers (`1, 2, 4`), ranges (`1-3, 5`), and keywords (`all`, `*`)
 - Top status color legend: `(staged: green, modified: yellow, untracked: red)`
 - Section divider lines for visual clarity
-- Color-coded options: `a` (Stage all [default]), `u` (Unstage), `r` (Refresh status), `p` (Proceed), `q` (Abort)
+- Color-coded options: `a` (Stage all [default]), `u` (Unstage with range support), `r` (Refresh status), `p` (Proceed), `q` (Abort)
 - `r` key stroke to dynamically refresh file status without leaving the menu
 - Pressing Enter on empty input defaults to `a` (Stage all files)
 
@@ -152,7 +157,7 @@ python git_commit.py --3.1        # force gemini-3.1-flash-lite
 - `c`: Execute the commit or amend (default on Enter)
 - `e`: Manually edit the generated summary/description
 - `m`: Switch Gemini model (`gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`, or custom) at will and optionally regenerate
-- `v`: Change version bump (`patch`, `minor`, `major`, `custom:X.Y.Z`, `none`) - **only shown for new commits**
+- `v`: Change version bump with color-coded choices (`patch`: green, `minor`: cyan, `major`: magenta, `none`: yellow, `custom`) - **only shown for new commits**
 - `d`: View the full git diff in `less` (with `-R` for color support)
 - `s`: Run a spell-check via `aspell`
 - `x`: Cancel and exit

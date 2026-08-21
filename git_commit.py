@@ -609,6 +609,35 @@ def get_git_files(include_details=False):
         return staged, unstaged, untracked, details
     return staged, unstaged, untracked
 
+def parse_index_selection(input_str, max_len):
+    """Parse comma-separated numbers, ranges (e.g. 1-3, 5), and 'all'/'*' into 0-based indices."""
+    cleaned = input_str.strip().lower()
+    if cleaned in ["all", "*"]:
+        return list(range(max_len))
+    
+    indices = []
+    parts = [p.strip() for p in input_str.split(",") if p.strip()]
+    for part in parts:
+        if "-" in part:
+            range_parts = part.split("-")
+            if len(range_parts) == 2 and range_parts[0].strip().isdigit() and range_parts[1].strip().isdigit():
+                start = int(range_parts[0].strip())
+                end = int(range_parts[1].strip())
+                if start > end:
+                    start, end = end, start
+                for num in range(start, end + 1):
+                    if 1 <= num <= max_len and (num - 1) not in indices:
+                        indices.append(num - 1)
+            else:
+                raise ValueError(f"Invalid range: {part}")
+        elif part.isdigit():
+            num = int(part)
+            if 1 <= num <= max_len and (num - 1) not in indices:
+                indices.append(num - 1)
+        else:
+            raise ValueError(f"Invalid item: {part}")
+    return indices
+
 def prompt_amend_or_new():
     """Ask user whether to amend last commit or create new one."""
     print(f"\n{c(COLOR_MAGENTA)}{c(COLOR_BOLD)}Commit Action:{c(COLOR_RESET)}")
@@ -667,7 +696,7 @@ def prompt_stage_files(staged, unstaged, untracked):
         print(f"  {c(COLOR_CYAN)}{c(COLOR_BOLD)}p{c(COLOR_RESET)}) Proceed with staged files")
         print(f"  {c(COLOR_RED)}{c(COLOR_BOLD)}q{c(COLOR_RESET)}) Abort")
 
-        choice = input("\nAction [comma-separated numbers or a/u/r/p/q] [a]: ").strip().lower()
+        choice = input("\nAction [comma-separated numbers/ranges (e.g. 1,3-5) or a/u/r/p/q] [a]: ").strip().lower()
         if choice == '':
             choice = 'a'
 
@@ -698,31 +727,22 @@ def prompt_stage_files(staged, unstaged, untracked):
                 display_name = f"{orig} -> {f}" if orig else f
                 print(f"  {c(COLOR_BOLD)}{idx}{c(COLOR_RESET)}) [{c(COLOR_GREEN)}{st_info}{c(COLOR_RESET)}] {display_name}")
             
-            unstage_choice = input("\nSelect files [comma-separated numbers] (press Enter to cancel): ").strip()
+            unstage_choice = input("\nSelect files [comma-separated numbers/ranges (e.g. 1,3-5) or all] (press Enter to cancel): ").strip()
             if not unstage_choice:
                 print_info("Cancelled unstaging.")
                 continue
             try:
-                for part in unstage_choice.split(","):
-                    part = part.strip()
-                    if part:
-                        idx = int(part)
-                        if 1 <= idx <= len(staged):
-                            run_git_cmd(["restore", "--staged", staged[idx-1]])
-                            print_success(f"Unstaged: {staged[idx-1]}")
+                unstage_indices = parse_index_selection(unstage_choice, len(staged))
+                for idx in unstage_indices:
+                    run_git_cmd(["restore", "--staged", staged[idx]])
+                    print_success(f"Unstaged: {staged[idx]}")
             except ValueError:
                 print_error("Invalid selection.")
             
             continue
         else:
-            indices = []
             try:
-                for part in choice.split(","):
-                    part = part.strip()
-                    if part:
-                        idx = int(part)
-                        if 1 <= idx <= len(all_available):
-                            indices.append(idx - 1)
+                indices = parse_index_selection(choice, len(all_available))
             except ValueError:
                 print_error("Invalid selection. No files staged.")
                 return False
@@ -912,7 +932,28 @@ def show_commit_stats(staged):
     if stats:
         print_info("Commit Statistics:")
         for line in stats.split('\n'):
-            print(f"  {line}")
+            if not line:
+                continue
+            if "|" in line:
+                parts = line.split("|", 1)
+                fname = parts[0]
+                rest = parts[1]
+                colored_rest = ""
+                for char in rest:
+                    if char == "+":
+                        colored_rest += f"{c(COLOR_GREEN)}+{c(COLOR_RESET)}"
+                    elif char == "-":
+                        colored_rest += f"{c(COLOR_RED)}-{c(COLOR_RESET)}"
+                    else:
+                        colored_rest += char
+                print(f"  {fname}|{colored_rest}")
+            elif "changed" in line:
+                colored_summary = line
+                colored_summary = re.sub(r'(\d+ insertions?\(\+\))', rf"{c(COLOR_GREEN)}\1{c(COLOR_RESET)}", colored_summary)
+                colored_summary = re.sub(r'(\d+ deletions?\(-\))', rf"{c(COLOR_RED)}\1{c(COLOR_RESET)}", colored_summary)
+                print(f"  {c(COLOR_BOLD)}{colored_summary.strip()}{c(COLOR_RESET)}")
+            else:
+                print(f"  {line}")
         
         langs = {}
         for f in staged:
@@ -922,7 +963,7 @@ def show_commit_stats(staged):
         if langs:
             print_info("Files by extension:")
             for ext, count in sorted(langs.items(), key=lambda x: x[1], reverse=True):
-                print(f"  {ext}: {count} files")
+                print(f"  {c(COLOR_CYAN)}{ext}{c(COLOR_RESET)}: {count} file{'s' if count != 1 else ''}")
 
 def detect_conventional_scope(files):
     """Detect conventional commit scope from file paths."""
@@ -1239,9 +1280,31 @@ def main():
     # 1. Print Google Gemini model name
     print_info(f"🤖 AI Model: {c(COLOR_GREEN)}Google Gemini - {model}{c(COLOR_RESET)}")
     
-    # 2. Print folder name
+    # 2. Print folder name and active branch
     folder_name = os.path.basename(os.getcwd())
     print_info(f"📁 Project: {c(COLOR_GREEN)}{folder_name}{c(COLOR_RESET)}")
+
+    branch_name = run_git_cmd(["branch", "--show-current"])
+    if not branch_name:
+        branch_name = run_git_cmd(["rev-parse", "--short", "HEAD"]) or "unknown"
+    upstream = run_git_cmd(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
+    sync_status = ""
+    if upstream:
+        counts = run_git_cmd(["rev-list", "--left-right", "--count", "HEAD...@{u}"])
+        if counts:
+            parts = counts.split()
+            if len(parts) == 2:
+                ahead, behind = parts[0], parts[1]
+                sync_parts = []
+                if int(ahead) > 0:
+                    sync_parts.append(f"{c(COLOR_GREEN)}ahead {ahead}{c(COLOR_RESET)}")
+                if int(behind) > 0:
+                    sync_parts.append(f"{c(COLOR_YELLOW)}behind {behind}{c(COLOR_RESET)}")
+                if sync_parts:
+                    sync_status = f" [{', '.join(sync_parts)}]"
+                else:
+                    sync_status = f" [{c(COLOR_GREEN)}up to date{c(COLOR_RESET)}]"
+    print_info(f"🌿 Branch: {c(COLOR_GREEN)}{branch_name}{c(COLOR_RESET)}{sync_status}")
     
     # 3. Show folder structure
     print_info("📂 Repository Structure:")
@@ -1254,15 +1317,15 @@ def main():
     # Startup Git Pull Check (Stash uncommitted/staged changes, pull rebase, and restore stash)
     remotes = run_git_cmd(["remote"])
     if remotes and config.get("auto_pull", True):
-        default_start_pull_prompt = "y"
+        default_start_pull_prompt = "n"
         while True:
             if NON_INTERACTIVE:
-                do_start_pull = True
+                do_start_pull = False
             else:
                 prompt_label = f"Pull latest changes from remote at startup? (y/n) [{default_start_pull_prompt}]:"
                 raw_choice = input(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}{prompt_label}{c(COLOR_RESET)} ").strip().lower()
                 pull_start_choice = raw_choice if raw_choice != "" else default_start_pull_prompt
-                do_start_pull = (pull_start_choice != 'n')
+                do_start_pull = (pull_start_choice in ['y', 'yes'])
             
             if not do_start_pull:
                 break
@@ -1652,7 +1715,10 @@ Git Diff:
         print(f"{c(COLOR_BOLD)}Mode:{c(COLOR_RESET)} {'AMEND' if commit_mode in ['amend', 'fresh_amend'] else 'NEW COMMIT'}")
         print(f"{c(COLOR_BOLD)}Files to commit:{c(COLOR_RESET)}")
         for f in staged:
-            print(f"  {f}")
+            st_info = details.get(f, {}).get("staged", "staged") if 'details' in locals() and details else "staged"
+            orig = details.get(f, {}).get("orig_path") if 'details' in locals() and details else None
+            display_name = f"{orig} -> {f}" if orig else f
+            print(f"  - [{c(COLOR_GREEN)}{st_info}{c(COLOR_RESET)}] {display_name}")
         if commit_mode == 'new':
             print(f"\n{c(COLOR_BOLD)}Version Bump:{c(COLOR_RESET)} {curr_version} -> {proposed_version} ({bump_choice})")
         else:
@@ -1803,10 +1869,10 @@ Git Diff:
             minor_ver = increment_version(curr_version, "minor")
             major_ver = increment_version(curr_version, "major")
             
-            print(f"  {c(COLOR_BOLD)}p{c(COLOR_RESET)}) 🔧 Patch → {c(COLOR_GREEN)}{patch_ver}{c(COLOR_RESET)}")
-            print(f"  {c(COLOR_BOLD)}m{c(COLOR_RESET)}) ✨ Minor → {c(COLOR_GREEN)}{minor_ver}{c(COLOR_RESET)}")
-            print(f"  {c(COLOR_BOLD)}j{c(COLOR_RESET)}) 🚀 Major → {c(COLOR_GREEN)}{major_ver}{c(COLOR_RESET)}")
-            print(f"  {c(COLOR_BOLD)}n{c(COLOR_RESET)}) ⏸️  None  → {c(COLOR_GREEN)}{curr_version}{c(COLOR_RESET)} (keep current)")
+            print(f"  {c(COLOR_GREEN)}{c(COLOR_BOLD)}p{c(COLOR_RESET)}) 🔧 Patch → {c(COLOR_GREEN)}{patch_ver}{c(COLOR_RESET)}")
+            print(f"  {c(COLOR_CYAN)}{c(COLOR_BOLD)}m{c(COLOR_RESET)}) ✨ Minor → {c(COLOR_CYAN)}{minor_ver}{c(COLOR_RESET)}")
+            print(f"  {c(COLOR_MAGENTA)}{c(COLOR_BOLD)}j{c(COLOR_RESET)}) 🚀 Major → {c(COLOR_MAGENTA)}{major_ver}{c(COLOR_RESET)}")
+            print(f"  {c(COLOR_YELLOW)}{c(COLOR_BOLD)}n{c(COLOR_RESET)}) ⏸️  None  → {c(COLOR_YELLOW)}{curr_version}{c(COLOR_RESET)} (keep current)")
             print(f"  {c(COLOR_BOLD)}c{c(COLOR_RESET)}) ✏️  Custom version")
             
             v_bump = input("\nSelect bump type [p/m/j/n/c] [p]: ").strip().lower()
