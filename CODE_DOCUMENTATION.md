@@ -56,6 +56,7 @@ This script implements the main execution loop. It is designed to be fully self-
 - `show_commit_stats(staged)`: Prints colorized `git diff --cached --stat` with green `+` insertions, red `-` deletions, highlighted summary line, and per-extension file counts.
 - `is_binary_file(filepath)`: Reads first 1 KB for null bytes to identify binary files, with checks for file existence to handle deleted files gracefully.
 - `is_env_file(filepath)`: Strict matching for security-sensitive files — returns `True` for secret `.env`, `.env.*`, and `.envrc` files, but returns `False` for safe template/example files (`.env.template`, `.env.example`, `.env.sample`, `.env.dist`).
+- `perform_git_pull()`: Executes `git pull --rebase` with intelligent fallback resolution for `fatal: Cannot rebase onto multiple branches.` by auto-resolving target remote and current branch.
 - `should_exclude_from_ai(filepath)`: Checks if a file should be excluded from AI diff analysis. Returns `True` if the file extension is in `AI_PROMPT_EXCLUDED_EXTENSIONS` or if the file is detected as binary.
 
 **Analysis**

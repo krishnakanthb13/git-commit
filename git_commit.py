@@ -517,6 +517,26 @@ def should_exclude_from_ai(filepath):
         return True
     return False
 
+def perform_git_pull():
+    """Execute git pull --rebase with automatic fallback resolution for multi-branch tracking ambiguity."""
+    res = subprocess.run(["git", "pull", "--rebase"], capture_output=True, text=True)
+    if res.returncode == 0:
+        return res
+    
+    stderr_lower = res.stderr.lower()
+    if "cannot rebase onto multiple branches" in stderr_lower:
+        branch_name = run_git_cmd(["branch", "--show-current"])
+        remote = run_git_cmd(["config", f"branch.{branch_name}.remote"]) if branch_name else ""
+        if not remote:
+            remotes = run_git_cmd(["remote"])
+            remote = remotes.split()[0] if remotes else "origin"
+        
+        target_branch = branch_name or "main"
+        fallback_res = subprocess.run(["git", "pull", "--rebase", remote, target_branch], capture_output=True, text=True)
+        return fallback_res
+        
+    return res
+
 def get_git_files(include_details=False):
     """Get staged, unstaged, and untracked files using null-terminated porcelain output."""
     staged = []
@@ -1340,7 +1360,7 @@ def main():
                 if stash_res and "No local changes to save" not in stash_res:
                     stashed = True
             
-            pull_res = subprocess.run(["git", "pull", "--rebase"], capture_output=True, text=True)
+            pull_res = perform_git_pull()
             retry_startup = False
             if pull_res.returncode == 0:
                 print_success("Startup pull complete.")
@@ -2073,19 +2093,22 @@ Git Diff:
                         if pull_choice != 'n':
                             print_info("Pulling latest changes from remote (git pull --rebase)...")
                             try:
-                                pull_res = subprocess.run(["git", "pull", "--rebase"], capture_output=True, text=True)
+                                pull_res = perform_git_pull()
                                 if pull_res.returncode == 0:
                                     print_success("Pull complete.")
                                 else:
                                     if "no tracking information" in pull_res.stderr.lower() or "no upstream branch" in pull_res.stderr.lower():
                                         print_info("No upstream tracking branch configured. Skipping pre-push pull.")
-                                    else:
-                                        print_error(f"Pull failed:\n{pull_res.stderr}")
+                                    elif "cannot pull with rebase: you have unstaged changes" in pull_res.stderr.lower() or "please commit or stash them" in pull_res.stderr.lower():
+                                        print_error(f"Pull failed:\n{pull_res.stderr.strip()}")
+                                        default_push_prompt = "n"
+                                        retry_push = True
                                         push_args = None
-                                        if "cannot pull with rebase: you have unstaged changes" in pull_res.stderr.lower() or "please commit or stash them" in pull_res.stderr.lower():
-                                            default_push_prompt = "n"
-                                            retry_push = True
-                                        else:
+                                    else:
+                                        print_error(f"Pull failed:\n{pull_res.stderr.strip()}")
+                                        push_override = input(f"\n{c(COLOR_YELLOW)}Pull encountered an issue. Attempt push anyway? (y/N) [n]:{c(COLOR_RESET)} ").strip().lower()
+                                        if push_override != 'y':
+                                            push_args = None
                                             print_warn("Aborting push due to pull failure. Please resolve the issue manually.")
                             except Exception as e:
                                 print_warn(f"Failed to execute git pull: {e}")
