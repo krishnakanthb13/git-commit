@@ -956,7 +956,7 @@ def show_commit_stats(staged):
                 continue
             if "|" in line:
                 parts = line.split("|", 1)
-                fname = parts[0]
+                fname = parts[0].lstrip()
                 rest = parts[1]
                 colored_rest = ""
                 for char in rest:
@@ -973,7 +973,7 @@ def show_commit_stats(staged):
                 colored_summary = re.sub(r'(\d+ deletions?\(-\))', rf"{c(COLOR_RED)}\1{c(COLOR_RESET)}", colored_summary)
                 print(f"  {c(COLOR_BOLD)}{colored_summary.strip()}{c(COLOR_RESET)}")
             else:
-                print(f"  {line}")
+                print(f"  {line.strip()}")
         
         langs = {}
         for f in staged:
@@ -1746,7 +1746,8 @@ Git Diff:
         print(f"\n{c(COLOR_BOLD)}Commit Message:{c(COLOR_RESET)}")
         print(f"  {c(COLOR_GREEN)}{display_summary}{c(COLOR_RESET)}")
         if description:
-            print(f"\n  {description}")
+            formatted_desc = "\n".join(f"  {line}" if line.strip() else "" for line in description.split("\n"))
+            print(f"\n{formatted_desc}")
         print(f"{c(COLOR_MAGENTA)}================================================={c(COLOR_RESET)}")
 
         validation_issues = validate_commit_message(f"{display_summary}\n\n{description}" if description else display_summary)
@@ -1955,7 +1956,8 @@ Git Diff:
         print_info("DRY RUN: Would commit with message:")
         if commit_mode in ['amend', 'fresh_amend']:
             print_info("  (Would amend last commit)")
-        print(f"  {full_commit_msg}")
+        for line in full_commit_msg.split('\n'):
+            print(f"  {line}" if line.strip() else "")
         print_success("Dry run complete — no changes committed.")
         clear_session_state()
         return False
