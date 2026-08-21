@@ -17,8 +17,8 @@ This document outlines the core architectural and design decisions behind the AI
   - Amend mode reuses the original commit message as context, reducing the need for extensive re-analysis.
 
 ## 3. Keyboard-First Interactive UI
-- **Motivation**: Git commit processes should be fast and simple. Keyboard hotkeys allow power-users to speed through staging, reviewing, and committing without mouse interaction.
-- **Implementation**: Uses short character keys (`c`, `e`, `v`, `d`, `s`, `x`) to control the commit loop. File staging uses comma-separated index selection. The unstage option (`u`) allows in-flight corrections without restarting. Commit mode selection (`n`/`a`/`f`) at startup provides quick access to amend workflows. Version bump options (`v`) only shown for new commits. Validation warnings displayed in review screen.
+- **Motivation**: Git commit processes should be fast, transparent, and simple. Keyboard hotkeys allow power-users to speed through staging, reviewing, and committing without mouse interaction, while granular status indicators provide full visibility into index state without needing a separate git status call.
+- **Implementation**: Uses short character keys (`c`, `e`, `v`, `d`, `s`, `x`) to control the commit loop. File staging uses comma-separated index selection with granular staged/unstaged status badges (`[staged: modified]`, `[staged: untracked]`, `[staged: renamed]`, `[staged: deleted]`, `[modified]`, `[deleted]`, `[untracked]`) and rename origin tracking (`old -> new`). The unstage option (`u`) allows in-flight corrections without restarting. Commit mode selection (`n`/`a`/`f`) at startup provides quick access to amend workflows. Version bump options (`v`) only shown for new commits. Validation warnings displayed in review screen.
 
 ## 4. Automatic Version Alignment
 - **Motivation**: Semantic versioning is often neglected or updated out of sync with commits.

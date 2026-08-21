@@ -517,14 +517,17 @@ def should_exclude_from_ai(filepath):
         return True
     return False
 
-def get_git_files():
+def get_git_files(include_details=False):
     """Get staged, unstaged, and untracked files using null-terminated porcelain output."""
     staged = []
     unstaged = []
     untracked = []
+    details = {}
 
     status_out = run_git_cmd(["status", "--porcelain", "-z"], strip=False)
     if not status_out:
+        if include_details:
+            return staged, unstaged, untracked, details
         return staged, unstaged, untracked
 
     entries = status_out.split("\0")
@@ -542,27 +545,54 @@ def get_git_files():
             
         xy = entry[:2]
         filename = entry[3:]
+        orig_path = None
+
+        # For renames (R) or copies (C), the old path takes up the next NUL-separated entry
+        if xy[0] in ["R", "C"] or xy[1] in ["R", "C"]:
+            if i + 1 < len(entries):
+                orig_path = entries[i + 1]
 
         # Completely ignore .env files to prevent staging/committing
-        if is_env_file(filename):
-            if xy[0] in ["M", "A", "D", "R"]:
+        if is_env_file(filename) or (orig_path and is_env_file(orig_path)):
+            if xy[0] in ["M", "A", "D", "R", "C"]:
                 staged_envs.append(filename)
             i += 1
-            if xy[0] in ["R", "C"]:
+            if xy[0] in ["R", "C"] or xy[1] in ["R", "C"]:
                 i += 1
             continue
 
+        file_detail = details.setdefault(filename, {})
+        if orig_path:
+            file_detail["orig_path"] = orig_path
+
         # Staged status in X slot
-        if xy[0] in ["M", "A", "D", "R"]:
+        if xy[0] in ["M", "A", "D", "R", "C"]:
             staged.append(filename)
+            if xy[0] == "M":
+                file_detail["staged"] = "staged: modified"
+            elif xy[0] == "A":
+                file_detail["staged"] = "staged: untracked"
+            elif xy[0] == "R":
+                file_detail["staged"] = "staged: renamed"
+            elif xy[0] == "D":
+                file_detail["staged"] = "staged: deleted"
+            elif xy[0] == "C":
+                file_detail["staged"] = "staged: copied"
+
         # Unstaged status in Y slot (or untracked)
         if xy[1] in ["M", "A", "D"]:
             unstaged.append(filename)
+            if xy[1] == "M":
+                file_detail["unstaged"] = "modified"
+            elif xy[1] == "D":
+                file_detail["unstaged"] = "deleted"
+            elif xy[1] == "A":
+                file_detail["unstaged"] = "added"
         elif xy == "??":
             untracked.append(filename)
+            file_detail["untracked"] = "untracked"
 
-        # For renames (R) or copies (C), the old path takes up the next NUL-separated entry
-        if xy[0] in ["R", "C"]:
+        if xy[0] in ["R", "C"] or xy[1] in ["R", "C"]:
             i += 1
             
         i += 1
@@ -573,8 +603,10 @@ def get_git_files():
         for env_f in staged_envs:
             run_git_cmd(["restore", "--staged", env_f])
         # Recursively call get_git_files to get clean lists after unstaging
-        return get_git_files()
+        return get_git_files(include_details=include_details)
 
+    if include_details:
+        return staged, unstaged, untracked, details
     return staged, unstaged, untracked
 
 def prompt_amend_or_new():
@@ -595,12 +627,21 @@ def prompt_amend_or_new():
 def prompt_stage_files(staged, unstaged, untracked):
     """Always show full file picker so user can review/add files before committing."""
     while True:
-        staged, unstaged, untracked = get_git_files()
-        all_available = (
-            [(f, "staged")    for f in staged] +
-            [(f, "modified")  for f in unstaged] +
-            [(f, "untracked") for f in untracked]
-        )
+        staged, unstaged, untracked, details = get_git_files(include_details=True)
+        all_available = []
+        for f in staged:
+            st_info = details.get(f, {}).get("staged", "staged")
+            orig = details.get(f, {}).get("orig_path")
+            display_name = f"{orig} -> {f}" if orig else f
+            all_available.append((f, st_info, display_name))
+
+        for f in unstaged:
+            unst_info = details.get(f, {}).get("unstaged", "modified")
+            all_available.append((f, unst_info, f))
+
+        for f in untracked:
+            all_available.append((f, "untracked", f))
+
         if not all_available:
             return False
 
@@ -608,14 +649,16 @@ def prompt_stage_files(staged, unstaged, untracked):
         print_info("Select files to stage/commit:")
         print(f"  ({c(COLOR_GREEN)}staged: green{c(COLOR_RESET)}, {c(COLOR_YELLOW)}modified: yellow{c(COLOR_RESET)}, {c(COLOR_RED)}untracked: red{c(COLOR_RESET)})")
         print(f"  {'-' * 45}")
-        for idx, (f, status) in enumerate(all_available, 1):
-            if status == "staged":
+        for idx, (f, status, display_name) in enumerate(all_available, 1):
+            if status.startswith("staged"):
                 color = c(COLOR_GREEN)
             elif status == "modified":
                 color = c(COLOR_YELLOW)
+            elif status == "deleted":
+                color = c(COLOR_MAGENTA)
             else:
                 color = c(COLOR_RED)
-            print(f"  {c(COLOR_BOLD)}{idx}{c(COLOR_RESET)}) [{color}{status}{c(COLOR_RESET)}] {f}")
+            print(f"  {c(COLOR_BOLD)}{idx}{c(COLOR_RESET)}) [{color}{status}{c(COLOR_RESET)}] {display_name}")
         
         print(f"  {'-' * 45}")
         print(f"  {c(COLOR_GREEN)}{c(COLOR_BOLD)}a{c(COLOR_RESET)}) Stage all files")
@@ -631,11 +674,10 @@ def prompt_stage_files(staged, unstaged, untracked):
         if choice == 'q':
             return "quit"
         elif choice == 'r':
-            staged, unstaged, untracked = get_git_files()
             print_info("Refreshed file status.")
             continue
         elif choice == 'a':
-            for f, _ in all_available:
+            for f, _, _ in all_available:
                 run_git_cmd(["add", f])
             print_success("Staged all files.")
             return True
@@ -651,7 +693,10 @@ def prompt_stage_files(staged, unstaged, untracked):
             
             print_info("Unstage files:")
             for idx, f in enumerate(staged, 1):
-                print(f"  {c(COLOR_BOLD)}{idx}{c(COLOR_RESET)}) {f}")
+                st_info = details.get(f, {}).get("staged", "staged")
+                orig = details.get(f, {}).get("orig_path")
+                display_name = f"{orig} -> {f}" if orig else f
+                print(f"  {c(COLOR_BOLD)}{idx}{c(COLOR_RESET)}) [{c(COLOR_GREEN)}{st_info}{c(COLOR_RESET)}] {display_name}")
             
             unstage_choice = input("\nSelect files [comma-separated numbers] (press Enter to cancel): ").strip()
             if not unstage_choice:
@@ -668,15 +713,7 @@ def prompt_stage_files(staged, unstaged, untracked):
             except ValueError:
                 print_error("Invalid selection.")
             
-            # Refresh file lists and loop back
-            staged, unstaged, untracked = get_git_files()
             continue
-        elif choice == '':
-            # Empty input: if files are already staged, proceed without changes
-            if staged:
-                return True
-            print_warn("No files selected.")
-            return False
         else:
             indices = []
             try:
@@ -695,7 +732,7 @@ def prompt_stage_files(staged, unstaged, untracked):
                 return False
 
             for idx in indices:
-                f, _ = all_available[idx]
+                f, _, _ = all_available[idx]
                 run_git_cmd(["add", f])
                 print_success(f"Staged: {f}")
             return True

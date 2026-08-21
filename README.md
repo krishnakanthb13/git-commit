@@ -71,7 +71,7 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 - 🔤 **Spell Checking**: Optional spell-check via system `aspell` command (press `s` in review screen).
 - 🛠️ **Interactive UI**:
   - **Commit Mode Selection**: Choose between new commit, amend, or fresh amend at startup
-  - Stage, unstage (`u`), and proceed (`p`) with already-staged files using an iterative picker loop (preventing stack overflows and supporting pre-staged files)
+  - Stage, unstage (`u`), and proceed (`p`) with already-staged files using an interactive picker loop with granular status tags (`staged: modified`, `staged: untracked`, `staged: renamed`, `staged: deleted`) and rename mappings (`old -> new`)
   - Review, edit (`e`), spell-check (`s`), or preview diffs (`d`) before committing
   - Version bump options (`v`) only shown for new commits (amend mode skips version bump by default)
   - Monitor CI pipelines live directly after pushing
@@ -83,7 +83,7 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 
 ```
 git-commit/
-├── git_commit.py              ← main tool (1,812 lines)
+├── git_commit.py              ← main tool (~2,130 lines)
 ├── register.py                ← install/uninstall context menu (winreg)
 ├── .env.template              ← copy to .env and add your API key
 ├── .env                       ← local configuration (contains API key, gitignored)
@@ -138,6 +138,8 @@ python git_commit.py --3.1        # force gemini-3.1-flash-lite
 - `f`: FRESH amend - replaces last commit message completely with new AI suggestion (no version bump)
 
 **Staging**: Enhanced interactive file picker featuring:
+- Granular staging status tags: `[staged: modified]`, `[staged: untracked]`, `[staged: renamed]`, `[staged: deleted]` alongside unstaged `[modified]`, `[deleted]`, and `[untracked]`
+- Origin path tracking for renames (e.g., `old_path -> new_path`)
 - Top status color legend: `(staged: green, modified: yellow, untracked: red)`
 - Section divider lines for visual clarity
 - Color-coded options: `a` (Stage all [default]), `u` (Unstage), `r` (Refresh status), `p` (Proceed), `q` (Abort)
