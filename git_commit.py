@@ -15,6 +15,9 @@ COLOR_YELLOW = "\033[93m"
 COLOR_RED = "\033[91m"
 COLOR_CYAN = "\033[96m"
 COLOR_MAGENTA = "\033[95m"
+COLOR_BLUE = "\033[94m"
+COLOR_SKY_BLUE = "\033[38;5;39m"
+COLOR_WHITE = "\033[97m"
 COLOR_BOLD = "\033[1m"
 COLOR_RESET = "\033[0m"
 
@@ -57,6 +60,18 @@ def print(*args, **kwargs):
             "⏸️": "[None]",
             "✏️": "[Custom]",
             "🎉": "Success!",
+            "↑": "^",
+            "↓": "v",
+            "⬆️": "^",
+            "⬇️": "v",
+            "📊": "[Tokens]",
+            "⏱️": "[Time]",
+            "💾": "[Cache]",
+            "⚡": "[Speed]",
+            "➕": "+",
+            "➖": "-",
+            "📦": "[Bin]",
+            "📝": "[Diff]",
         }
         for uni, asc in replacements.items():
             text = text.replace(uni, asc)
@@ -92,6 +107,30 @@ def print_error(msg):
         print(f"{COLOR_RED}{COLOR_BOLD}[ERROR] {msg}{COLOR_RESET}")
     else:
         print(f"[ERROR] {msg}")
+
+def print_token_usage(ai_res):
+    """Print token usage and latency with clean colors and simple arrows."""
+    tokens = ai_res.get("_tokens") if isinstance(ai_res, dict) else None
+    if tokens:
+        sent = tokens.get("prompt", 0)
+        received = tokens.get("candidates", 0)
+        total = tokens.get("total", sent + received)
+        latency = tokens.get("latency")
+        cached = tokens.get("cached", 0)
+
+        # Clean typography with distinct colors and simple symbols
+        sent_str = f"{c(COLOR_SKY_BLUE)}↑ {sent:,} sent{c(COLOR_RESET)}"
+        recv_str = f"{c(COLOR_GREEN)}↓ {received:,} received{c(COLOR_RESET)}"
+        total_str = f"{c(COLOR_MAGENTA)}{total:,} total{c(COLOR_RESET)}"
+
+        parts = [sent_str, recv_str, total_str]
+        if cached:
+            parts.append(f"{c(COLOR_YELLOW)}{cached:,} cached{c(COLOR_RESET)}")
+        if latency is not None:
+            parts.append(f"{c(COLOR_YELLOW)}{latency:.2f}s{c(COLOR_RESET)}")
+
+        details = f" {c(COLOR_BOLD)}│{c(COLOR_RESET)} ".join(parts)
+        print_info(f"AI Tokens: {details}")
 
 def load_dotenv():
     """Simple parser to load .env variables without external dependencies."""
@@ -130,6 +169,78 @@ def run_git_cmd(args, strip=True):
         return res.stdout.strip() if strip else res.stdout
     except subprocess.CalledProcessError:
         return None
+
+def get_consolidated_diff_stats(staged=None, commit_mode='new'):
+    """Get consolidated diff breakdown: additions (+), deletions (-), and files changed."""
+    args = ["diff", "--cached", "--numstat"]
+    if commit_mode == 'fresh_amend':
+        args += ["HEAD~1"]
+    if staged:
+        args += ["--"] + staged
+    
+    out = run_git_cmd(args)
+    if not out:
+        return None
+    
+    insertions = 0
+    deletions = 0
+    binary_files = 0
+    text_files = 0
+    
+    for line in out.strip().split('\n'):
+        if not line.strip():
+            continue
+        parts = line.split('\t')
+        if len(parts) >= 3:
+            ins, dels, _ = parts[0], parts[1], parts[2]
+            if ins == '-' or dels == '-':
+                binary_files += 1
+            else:
+                try:
+                    insertions += int(ins)
+                    deletions += int(dels)
+                    text_files += 1
+                except ValueError:
+                    pass
+    
+    total_files = text_files + binary_files
+    return {
+        "insertions": insertions,
+        "deletions": deletions,
+        "text_files": text_files,
+        "binary_files": binary_files,
+        "total_files": total_files
+    }
+
+def print_diff_breakdown(staged=None, commit_mode='new'):
+    """Print consolidated diff statistics with clean colors and simple symbols."""
+    stats = get_consolidated_diff_stats(staged, commit_mode)
+    if not stats or (stats["total_files"] == 0 and stats["insertions"] == 0 and stats["deletions"] == 0):
+        return
+    
+    ins = stats["insertions"]
+    dels = stats["deletions"]
+    files_cnt = stats["total_files"]
+    binary_cnt = stats["binary_files"]
+    net = ins - dels
+    
+    files_str = f"{c(COLOR_SKY_BLUE)}{files_cnt} file{'s' if files_cnt != 1 else ''}{c(COLOR_RESET)}"
+    ins_str = f"{c(COLOR_GREEN)}+{ins:,} added{c(COLOR_RESET)}"
+    dels_str = f"{c(COLOR_RED)}-{dels:,} deleted{c(COLOR_RESET)}"
+    
+    if net > 0:
+        net_str = f"{c(COLOR_GREEN)}+{net:,} net{c(COLOR_RESET)}"
+    elif net < 0:
+        net_str = f"{c(COLOR_RED)}{net:,} net{c(COLOR_RESET)}"
+    else:
+        net_str = f"{c(COLOR_YELLOW)}0 net{c(COLOR_RESET)}"
+        
+    parts = [files_str, ins_str, dels_str, f"({net_str})"]
+    if binary_cnt > 0:
+        parts.append(f"{c(COLOR_YELLOW)}{binary_cnt} binary{c(COLOR_RESET)}")
+        
+    details = f" {c(COLOR_BOLD)}│{c(COLOR_RESET)} ".join(parts)
+    print_info(f"Diff Stats: {details}")
 
 def detect_version():
     """Detect current version from git tags, commit messages, or project files."""
@@ -888,7 +999,9 @@ def call_gemini_api(api_key, model, prompt_text):
     max_retries = 3
     for attempt in range(1, max_retries + 1):
         try:
+            start_t = time.time()
             with urllib.request.urlopen(req, timeout=60) as response:
+                latency = time.time() - start_t
                 res_data = json.loads(response.read().decode("utf-8"))
                 
                 # Better error recovery
@@ -902,6 +1015,21 @@ def call_gemini_api(api_key, model, prompt_text):
                 parsed_response = json.loads(text_response)
                 if not parsed_response.get("summary"):
                     raise ValueError("API returned invalid structure (missing summary)")
+                
+                # Extract token usage metadata if available
+                usage = res_data.get("usageMetadata", {})
+                prompt_tokens = usage.get("promptTokenCount")
+                candidates_tokens = usage.get("candidatesTokenCount")
+                total_tokens = usage.get("totalTokenCount")
+                cached_tokens = usage.get("cachedContentTokenCount", 0)
+                if prompt_tokens is not None or candidates_tokens is not None:
+                    parsed_response["_tokens"] = {
+                        "prompt": prompt_tokens or 0,
+                        "candidates": candidates_tokens or 0,
+                        "total": total_tokens or ((prompt_tokens or 0) + (candidates_tokens or 0)),
+                        "cached": cached_tokens,
+                        "latency": latency,
+                    }
                     
                 return parsed_response
         except urllib.error.HTTPError as e:
@@ -1575,7 +1703,7 @@ def main():
             scope = detect_conventional_scope(staged_files_for_prompt)
             scope_context = f"\nDetected scope: {', '.join(scope)}\n" if scope else ""
 
-            print_info("Generating commit message via Gemini...")
+            print_info(f"Generating commit message via Gemini ({c(COLOR_MAGENTA)}{model}{c(COLOR_RESET)})...")
             prompt_text = f"""
 You are a git commit message generator helper.
 Analyze the following git diff and user provided context, then output a structured commit summary and description.
@@ -1601,6 +1729,7 @@ Git Diff:
                     ai_res = call_gemini_api(api_key, model, prompt_text)
                     summary = ai_res.get("summary", "").strip()
                     description = ai_res.get("description", "").strip()
+                    print_token_usage(ai_res)
                     break
                 except Exception as e:
                     print_error(f"Gemini API request failed ({e})")
@@ -1697,9 +1826,11 @@ Git Diff:
     # Summary of what will be committed before the review loop
     if commit_mode == 'new':
         bump_preview = increment_version(curr_version, bump_choice) if bump_choice != "none" else curr_version
-        print_info(f"Preparing commit: {curr_version} → {c(COLOR_GREEN)}{bump_preview}{c(COLOR_RESET)} ({bump_choice} bump)")
-        print_info(f"Files to be committed: {len(staged)}")
+        print_info(f"Preparing commit: {c(COLOR_SKY_BLUE)}{curr_version}{c(COLOR_RESET)} → {c(COLOR_GREEN)}{bump_preview}{c(COLOR_RESET)} ({bump_choice} bump)")
+        print_diff_breakdown(staged, commit_mode)
         print_info(f"Commit mode: New commit with {'version tag' if bump_choice != 'none' else 'no version bump'}")
+    else:
+        print_diff_breakdown(staged, commit_mode)
     
     while True:
         if commit_mode == 'new':
@@ -1802,11 +1933,12 @@ Git Diff:
                 if commit_mode == 'new' and prompt_text:
                     regen = input(f"{c(COLOR_CYAN)}Regenerate commit message using {model}? (y/N) [y]:{c(COLOR_RESET)} ").strip().lower()
                     if regen != 'n':
-                        print_info(f"Regenerating commit message via {model}...")
+                        print_info(f"Regenerating commit message via Gemini ({c(COLOR_MAGENTA)}{model}{c(COLOR_RESET)})...")
                         try:
                             ai_res = call_gemini_api(api_key, model, prompt_text)
                             summary = ai_res.get("summary", "").strip()
                             description = ai_res.get("description", "").strip()
+                            print_token_usage(ai_res)
                             print_success("New commit message generated!")
                         except Exception as e:
                             print_error(f"Regeneration failed: {e}")
@@ -1873,11 +2005,12 @@ Git Diff:
             if not prompt_text:
                 print_warn("Cannot regenerate - original prompt not available (session resumed).")
                 continue
-            print_info(f"Regenerating commit message using {model}...")
+            print_info(f"Regenerating commit message via Gemini ({c(COLOR_MAGENTA)}{model}{c(COLOR_RESET)})...")
             try:
                 ai_res = call_gemini_api(api_key, model, prompt_text)
                 summary = ai_res.get("summary", "").strip()
                 description = ai_res.get("description", "").strip()
+                print_token_usage(ai_res)
                 print_success("New commit message generated!")
             except Exception as e:
                 print_error(f"Regeneration failed: {e}")

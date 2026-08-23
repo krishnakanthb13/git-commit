@@ -60,6 +60,8 @@ This script implements the main execution loop. It is designed to be fully self-
 - `should_exclude_from_ai(filepath)`: Checks if a file should be excluded from AI diff analysis. Returns `True` if the file extension is in `AI_PROMPT_EXCLUDED_EXTENSIONS` or if the file is detected as binary.
 
 **Analysis**
+- `get_consolidated_diff_stats(staged, commit_mode)`: Computes consolidated git diff breakdown using `git diff --cached --numstat` (insertions, deletions, text files, binary files).
+- `print_diff_breakdown(staged, commit_mode)`: Prints an `[INFO]` line showing consolidated diff statistics with colors and emojis (`📄 7 files │ ➕ 142 added │ ➖ 38 deleted │ (+104 net)`).
 - `detect_conventional_scope(files)`: Maps file path prefixes (e.g., `ui/`, `db/`) to conventional commit scope labels.
 - `detect_conventional_commits_usage()`: Checks last 20 commits — returns `True` if >50% follow `feat:`/`fix:` format. Extended to include `docs`, `style`, `refactor`, `test`, `chore`, `perf`, `ci`, `build`, `revert`.
 - `check_spelling(text)`: Pipes text to system `aspell`; returns list of misspelled words.
@@ -79,7 +81,8 @@ This script implements the main execution loop. It is designed to be fully self-
 - `monitor_ci()`: Uses `gh run watch` to stream live CI output after a push. Checks for active runs, shows status, and monitors until completion.
 
 **API**
-- `call_gemini_api(api_key, model, prompt_text)`: POST to Gemini REST API with JSON schema enforcement, exponential-backoff retries (max 3), and a 60-second connection timeout to avoid hanging connections. Returns structured JSON with `summary` and `description`.
+- `call_gemini_api(api_key, model, prompt_text)`: POST to Gemini REST API with JSON schema enforcement, exponential-backoff retries (max 3), and a 60-second connection timeout to avoid hanging connections. Returns structured JSON with `summary`, `description`, and `_tokens` metadata (sent prompt tokens and received response tokens).
+- `print_token_usage(ai_res)`: Prints an `[INFO]` line indicating the number of tokens sent to the AI and received in the response.
 
 ### Amend Mode Functionality
 
