@@ -88,11 +88,11 @@ This document outlines the core architectural and design decisions behind the AI
   - Version prefix added to commit messages for all modes (e.g., `v1.2.3 - feat: add feature` or `1.2.3 - feat: add feature`)
 
 ## 14. Terminal Resilience & Interface Stability
-- **Motivation**: Command-line interfaces should never crash or hang indefinitely due to recursive call stack limits, network timeouts, or stdout redirection errors.
+- **Motivation**: Command-line interfaces should never crash, hang indefinitely, or abruptly drop the user back to the shell when a working tree is clean or an action is aborted.
 - **Implementation**:
   - Replaces recursive interaction models in the file staging picker with iterative loops to avoid stack overflows.
   - Adds connection timeouts (60 seconds) on API client boundaries to fail gracefully instead of hanging forever.
   - Introduces defensive file-existence guards before opening files for binary checking, preventing errors on deleted files.
   - Implements a centralized conditional ANSI color wrapper (`c()`) to prevent color escape codes from leaking in non-TTY or redirected output environments.
   - Employs robust printing fallbacks to quietly suppress/bypass terminal errors if stdout streams are closed or redirected.
-  - Substitutes abrupt `sys.exit()` calls with graceful boolean returns, wrapped in a top-level execution loop. This enables continuous sessions, allowing users to recover from errors or perform multiple commits without dropping back to the shell, while bounding retries (max 10) to prevent infinite loops.
+  - Substitutes abrupt `sys.exit()` calls with a unified restart prompt (`prompt_exit_or_restart`), wrapped in a top-level execution loop. When the working tree is clean, staging is aborted, a commit is cancelled, or a commit finishes, the user is offered an immediate restart hotkey (`r`) or exit (`Enter`). This enables continuous sessions, allowing users to make changes and commit again without dropping back to the shell, while bounding retries (max 10) to prevent infinite loops.

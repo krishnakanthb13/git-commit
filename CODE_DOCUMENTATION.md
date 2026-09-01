@@ -6,7 +6,7 @@ This document describes the technical implementation details of the AI Git Commi
 
 ```
 git-commit/
-├── git_commit.py              # Core CLI tool logic (1,812 lines)
+├── git_commit.py              # Core CLI tool logic (~2,400 lines)
 ├── register.py                # Windows Registry integration helper
 ├── .env.template              # Configuration environment template
 ├── .env                       # Local configuration (contains API key, gitignored)
@@ -30,6 +30,7 @@ This script implements the main execution loop. It is designed to be fully self-
 **Core helpers**
 - `c(color_code)`: Conditional color helper that returns the color code if `USE_COLORS` is enabled, otherwise returns an empty string. Prevents ANSI color code leaking on non-TTY environments.
 - `print_success(msg)`, `print_info(msg)`, `print_warn(msg)`, `print_error(msg)`: Colored output helpers with NO_COLOR/c() support.
+- `prompt_exit_or_restart(non_interactive=False)`: Prompts the user with `Press Enter to exit, or 'r' to restart:` and returns `True` if `r` is entered (clearing the console and signaling the runner loop to re-execute `main()`), or `False` to exit cleanly. Bypassed in non-interactive/CI mode.
 - `load_dotenv()`: Parses `.env` file without external dependencies. It looks in the directory where the script (`git_commit.py`) is located first, and then in the current working directory.
 - `run_git_cmd(args, strip=True)`: Subprocess wrapper for git commands; returns stdout or `None`.
 - `detect_version()`: Priority order — checks git tags, git commit messages, `package.json`, and `pyproject.toml`. Collects all detected versions, parses them into integer tuples (supporting standard SemVer as well as multi-part versions like `v1.1.1.11`), and sorts the choices descending so the largest version is listed first (Option 1). In interactive mode, if a lower version (or a custom lower version) is selected, it asks for user confirmation before proceeding, allowing the user to confirm or return to the selection list. In non-interactive mode, it auto-selects the highest available version. For custom base versions, it automatically prepends `v` if missing to maintain consistency.
@@ -149,7 +150,7 @@ The tool supports three commit modes for flexible history management:
 - `NO_COLOR`: Disable colored output (optional)
 
 **Entrypoint**
-- `main()`: Full orchestration — dependency check → flag parsing (`--dry-run`, `--non-interactive`) → **startup `git pull --rebase` check (with `git stash` protection and interactive prompt loop default `[n]` recovery on unstaged changes failure)** → session recovery → staging (with granular status tags `[staged: modified]`, `[staged: untracked]`, `[staged: renamed]`, `[staged: deleted]` and rename mappings in both picker and confirmation summary) → **commit mode selection (new/amend/fresh amend)** → version detection → pre-commit hooks → AI call (with interactive error recovery: 30s retry, manual entry, or default summary) → interactive review (with validation warnings) → commit/tag/amend → push (prompts default to yes, runs optional interactive pre-push `git pull --rebase` safety check with prompt loop default `[n]` recovery on unstaged changes failure, with force push option for amended commits, or triggers interactive GitHub repository creation via `gh repo create` if no remote is configured) → PR creation → CI monitor → session clear. Returns boolean indicating whether to restart the session.
+- `main()`: Full orchestration — dependency check → flag parsing (`--dry-run`, `--non-interactive`) → **startup `git pull --rebase` check (with `git stash` protection and interactive prompt loop default `[n]` recovery on unstaged changes failure)** → session recovery → staging (with granular status tags `[staged: modified]`, `[staged: untracked]`, `[staged: renamed]`, `[staged: deleted]` and rename mappings in both picker and confirmation summary) → **commit mode selection (new/amend/fresh amend)** → version detection → pre-commit hooks → AI call (with interactive error recovery: 30s retry, manual entry, or default summary) → interactive review (with validation warnings) → commit/tag/amend → push (prompts default to yes, runs optional interactive pre-push `git pull --rebase` safety check with prompt loop default `[n]` recovery on unstaged changes failure, with force push option for amended commits, or triggers interactive GitHub repository creation via `gh repo create` if no remote is configured) → PR creation → CI monitor → session clear. Returns boolean indicating whether to restart the session via `prompt_exit_or_restart(NON_INTERACTIVE)` (triggered on clean working tree, aborted staging, cancelled commit, dry-run completion, or post-commit workflow).
 - Script runner (`if __name__ == "__main__":`): Wraps `main()` in a bounded while-loop (max 10 restarts) that handles `KeyboardInterrupt` and unexpected exceptions gracefully, offering the user a chance to restart before exiting.
 
 **Command-line flags:**

@@ -42,7 +42,7 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 22. 🔄 **Unstage files** during staging with interactive picker
 23. 📝 **Loads commit templates** from `.git/COMMIT_TEMPLATE` or `.github/PULL_REQUEST_TEMPLATE.md`
 24. 📦 **GitHub Repository Creation**: Auto-prompts to create a public/private repository on GitHub and push code/tags when no git remote is configured.
-25. 🔁 **Continuous Sessions**: Prompts to optionally restart the tool after completion or errors, allowing multiple commits in a single run without dropping back to the shell.
+25. 🔁 **Continuous Sessions**: Prompts to optionally restart the tool (`Press Enter to exit, or 'r' to restart`) when the working tree is clean, staging is aborted, commits are cancelled, or upon completion/errors, allowing seamless multi-commit workflows without dropping back to the shell.
 26. 🔒 **Security: .env Protection**: Automatically detects and unstages `.env`, `.env.*`, and `.envrc` files to prevent accidental credential leaks, while allowing safe template and example files (`.env.template`, `.env.example`, `.env.sample`, `.env.dist`) to be committed normally.
 27. 🤖 **AI Prompt Optimization**: Excludes images, videos, audio, PDFs, and binary files from the Gemini prompt to save tokens and improve analysis quality. Files are still committed normally — only AI analysis is affected.
 
@@ -78,13 +78,13 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
   - Monitor CI pipelines live directly after pushing
   - Validation warnings (including version tag collision warning) displayed in review screen
   - **GitHub Repository Creation**: Interactively prompts to create a public/private GitHub repository if no remote is configured (requires `gh` CLI).
-  - **Continuous Session**: Prompts to restart upon success or error, providing a seamless multi-commit experience without abrupt termination.
+  - **Continuous Session**: Prompts to restart upon success, clean tree, or error, providing a seamless multi-commit experience without abrupt termination.
 
 ## Code Base
 
 ```
 git-commit/
-├── git_commit.py              ← main tool (~2,236 lines)
+├── git_commit.py              ← main tool (~2,400 lines)
 ├── register.py                ← install/uninstall context menu (winreg)
 ├── .env.template              ← copy to .env and add your API key
 ├── .env                       ← local configuration (contains API key, gitignored)

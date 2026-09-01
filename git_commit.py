@@ -1381,6 +1381,19 @@ def show_folder_structure(startpath, max_depth=3, max_files_per_dir=10):
     else:
         print("  (empty repository)")
 
+def prompt_exit_or_restart(non_interactive=False):
+    """Prompt the user to exit or restart CommitGen."""
+    if non_interactive:
+        return False
+    while True:
+        choice = input(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}Press Enter to exit, or 'r' to restart: {c(COLOR_RESET)}").strip().lower()
+        if choice == 'r':
+            os.system('cls' if os.name == 'nt' else 'clear')
+            print_info("Restarting CommitGen...\n")
+            return True  # Signal to restart
+        else:
+            return False  # Signal to exit
+
 def main():
     load_dotenv()
     check_dependencies()
@@ -1548,7 +1561,7 @@ def main():
         staged, unstaged, untracked = get_git_files()
         if not staged and not unstaged and not untracked:
             print_success("Nothing to commit, working tree clean.")
-            return False
+            return prompt_exit_or_restart(NON_INTERACTIVE)
 
         if NON_INTERACTIVE:
             # In CI mode: auto-stage all and proceed
@@ -1557,12 +1570,12 @@ def main():
             staged, _, _, details = get_git_files(include_details=True)
         else:
             if prompt_stage_files(staged, unstaged, untracked) == "quit":
-                return False
+                return prompt_exit_or_restart(NON_INTERACTIVE)
             staged, _, _, details = get_git_files(include_details=True)
 
         if not staged:
-            print_error("No files staged for commit.")
-            sys.exit(1)
+            print_warn("No files staged for commit.")
+            return prompt_exit_or_restart(NON_INTERACTIVE)
 
         print_info("Staged files for commit:")
         for f in staged:
@@ -1914,7 +1927,7 @@ Git Diff:
         elif action == "x":
             print_info("Commit cancelled.")
             clear_session_state()
-            return False
+            return prompt_exit_or_restart(NON_INTERACTIVE)
         elif action == "m":
             new_model = prompt_select_model(model)
             if new_model != model:
@@ -2093,7 +2106,7 @@ Git Diff:
             print(f"  {line}" if line.strip() else "")
         print_success("Dry run complete — no changes committed.")
         clear_session_state()
-        return False
+        return prompt_exit_or_restart(NON_INTERACTIVE)
 
     # Apply version changes (only for new commits)
     if commit_mode == 'new' and bump_choice != "none" and final_version:
@@ -2356,15 +2369,7 @@ Git Diff:
         return False
 
     clear_session_state()
-    
-    while True:
-        choice = input(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}Press Enter to exit, or 'r' to restart: {c(COLOR_RESET)}").strip().lower()
-        if choice == 'r':
-            os.system('cls' if os.name == 'nt' else 'clear')
-            print_info("Restarting CommitGen...\n")
-            return True  # Signal to restart
-        else:
-            return False  # Signal to exit
+    return prompt_exit_or_restart(NON_INTERACTIVE)
 
 if __name__ == "__main__":
     restart_count = 0
