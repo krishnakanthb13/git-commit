@@ -30,6 +30,8 @@ This script implements the main execution loop. It is designed to be fully self-
 **Core helpers**
 - `c(color_code)`: Conditional color helper that returns the color code if `USE_COLORS` is enabled, otherwise returns an empty string. Prevents ANSI color code leaking on non-TTY environments.
 - `print_success(msg)`, `print_info(msg)`, `print_warn(msg)`, `print_error(msg)`: Colored output helpers with NO_COLOR/c() support.
+- `show_startup_banner()`: Displays the CommitGen header banner alongside the active project folder name and absolute directory path.
+- `format_co_author_trailer(model)`: Generates the standardized git commit trailer `Co-authored-by: Custom Tool By BKK ({model}) <{model}>`.
 - `prompt_exit_or_restart(non_interactive=False)`: Prompts the user with `Press Enter to exit, or 'r' to restart:` and returns `True` if `r` is entered (clearing the console and signaling the runner loop to re-execute `main()`), or `False` to exit cleanly. Bypassed in non-interactive/CI mode.
 - `load_dotenv()`: Parses `.env` file without external dependencies. It looks in the directory where the script (`git_commit.py`) is located first, and then in the current working directory.
 - `run_git_cmd(args, strip=True)`: Subprocess wrapper for git commands; returns stdout or `None`.
@@ -135,7 +137,8 @@ The tool supports three commit modes for flexible history management:
     "auto_push": False,
     "auto_pull": True,
     "model": "gemini-3.5-flash-lite",
-    "auto_tag": False  # Set to True to skip the tagging confirmation prompt
+    "auto_tag": False,  # Set to True to skip the tagging confirmation prompt
+    "co_author": False  # Set to True to enable Co-Authored-By attribution by default
 }
 ```
 
@@ -147,15 +150,17 @@ The tool supports three commit modes for flexible history management:
 **Environment Variables:**
 - `GEMINI_API_KEY`: Gemini API key (required)
 - `GEMINI_MODEL`: Model name (optional, overrides config)
+- `CO_AUTHOR` / `CO_AUTHORED_BY`: Enable or disable Co-Authored-By attribution trailer (optional)
 - `NO_COLOR`: Disable colored output (optional)
 
 **Entrypoint**
-- `main()`: Full orchestration — dependency check → flag parsing (`--dry-run`, `--non-interactive`) → **startup `git pull --rebase` check (with `git stash` protection and interactive prompt loop default `[n]` recovery on unstaged changes failure)** → session recovery → staging (with granular status tags `[staged: modified]`, `[staged: untracked]`, `[staged: renamed]`, `[staged: deleted]` and rename mappings in both picker and confirmation summary) → **commit mode selection (new/amend/fresh amend)** → version detection → pre-commit hooks → AI call (with interactive error recovery: 30s retry, manual entry, or default summary) → interactive review (with validation warnings) → commit/tag/amend → push (prompts default to yes, runs optional interactive pre-push `git pull --rebase` safety check with prompt loop default `[n]` recovery on unstaged changes failure, with force push option for amended commits, or triggers interactive GitHub repository creation via `gh repo create` if no remote is configured) → PR creation → CI monitor → session clear. Returns boolean indicating whether to restart the session via `prompt_exit_or_restart(NON_INTERACTIVE)` (triggered on clean working tree, aborted staging, cancelled commit, dry-run completion, or post-commit workflow).
+- `main()`: Full orchestration — dependency check → flag parsing (`--dry-run`, `--non-interactive`, `--co-author`, `--no-co-author`) → **startup banner (project folder name & absolute directory path)** → **startup `git pull --rebase` check (with `git stash` protection and interactive prompt loop default `[n]` recovery on unstaged changes failure)** → session recovery → staging (with granular status tags `[staged: modified]`, `[staged: untracked]`, `[staged: renamed]`, `[staged: deleted]` and rename mappings in both picker and confirmation summary) → **commit mode selection (new/amend/fresh amend)** → version detection → pre-commit hooks → AI call (with interactive error recovery: 30s retry, manual entry, or default summary) → **Co-Authored-By attribution prompt (default `[n]`)** → interactive review (with validation warnings and `t` toggle hotkey) → commit/tag/amend → push (prompts default to yes, runs optional interactive pre-push `git pull --rebase` safety check with prompt loop default `[n]` recovery on unstaged changes failure, with force push option for amended commits, or triggers interactive GitHub repository creation via `gh repo create` if no remote is configured) → PR creation → CI monitor → session clear. Returns boolean indicating whether to restart the session via `prompt_exit_or_restart(NON_INTERACTIVE)` (triggered on clean working tree, aborted staging, cancelled commit, dry-run completion, or post-commit workflow).
 - Script runner (`if __name__ == "__main__":`): Wraps `main()` in a bounded while-loop (max 10 restarts) that handles `KeyboardInterrupt` and unexpected exceptions gracefully, offering the user a chance to restart before exiting.
 
 **Command-line flags:**
 - `--dry-run`: Preview commit without making changes
 - `--non-interactive`: Headless/CI mode (no prompts, auto-stages everything)
+- `--co-author` / `--no-co-author`: Force enable or disable Co-Authored-By attribution trailer
 
 ## 2. register.py
 

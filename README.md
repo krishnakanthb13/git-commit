@@ -45,6 +45,8 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 25. 🔁 **Continuous Sessions**: Prompts to optionally restart the tool (`Press Enter to exit, or 'r' to restart`) when the working tree is clean, staging is aborted, commits are cancelled, or upon completion/errors, allowing seamless multi-commit workflows without dropping back to the shell.
 26. 🔒 **Security: .env Protection**: Automatically detects and unstages `.env`, `.env.*`, and `.envrc` files to prevent accidental credential leaks, while allowing safe template and example files (`.env.template`, `.env.example`, `.env.sample`, `.env.dist`) to be committed normally.
 27. 🤖 **AI Prompt Optimization**: Excludes images, videos, audio, PDFs, and binary files from the Gemini prompt to save tokens and improve analysis quality. Files are still committed normally — only AI analysis is affected.
+28. 👥 **Co-Authored-By Attribution**: Optional git commit trailer (`Co-authored-by: Custom Tool By BKK ({model}) <{model}>`) to credit AI generation with interactive prompting (defaults to `n`), dynamic review menu toggle (`t`), CLI flags (`--co-author`/`--no-co-author`), and configuration support.
+29. 📁 **Startup Directory Context**: Immediately displays the active project folder name and absolute directory path at launch before model selection.
 
 **A comprehensive Git commit tool** that handles the entire workflow from staging to CI monitoring with excellent error handling and user experience.
 
@@ -123,6 +125,7 @@ python git_commit.py --3.1        # force gemini-3.1-flash-lite
 - `--dry-run`: Preview the commit message and actions without making any changes
 - `--non-interactive`: Run in headless mode (auto-stages all files, no prompts, uses defaults)
 - `--model <name>`, `--3.5`, `--3.1`: Specify Gemini model to use
+- `--co-author` / `--no-co-author`: Enable or disable Co-Authored-By attribution trailer
 
 **Auto-detection:** The tool automatically detects CI environments (GitHub Actions, GitLab CI, Jenkins, Travis) and enables non-interactive mode.
 
@@ -135,6 +138,9 @@ python git_commit.py --3.1        # force gemini-3.1-flash-lite
 
 **Startup Remote Pull**:
 - Prompts whether to pull latest changes from remote (defaults to `n` on Enter so uncommitted work is not unexpectedly rebased unless requested).
+
+**Co-Authored-By Attribution**:
+- Prompts whether to include Co-Authored-By attribution (`Custom Tool By BKK ({model})`) in the commit message trailer (defaults to `n` on Enter).
 
 **Commit Mode Selection** (appears at startup if previous commits exist):
 - `n`: Create a NEW commit (default) - includes version bump and tag
@@ -158,6 +164,7 @@ python git_commit.py --3.1        # force gemini-3.1-flash-lite
 - `e`: Manually edit the generated summary/description
 - `m`: Switch Gemini model (`gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`, or custom) at will and optionally regenerate
 - `v`: Change version bump with color-coded choices (`patch`: green, `minor`: cyan, `major`: magenta, `none`: yellow, `custom`) - **only shown for new commits**
+- `t`: Toggle Co-Authored-By attribution trailer on/off dynamically before committing
 - `d`: View the full git diff in `less` (with `-R` for color support)
 - `s`: Run a spell-check via `aspell`
 - `x`: Cancel and exit
@@ -189,12 +196,13 @@ Create a `.commitgenrc` JSON file in your repo (or `~/.commitgenrc` globally) to
   "auto_push": false,
   "auto_pull": true,
   "model": "gemini-3.5-flash-lite",
-  "auto_tag": false
+  "auto_tag": false,
+  "co_author": false
 }
 ```
 
 **Configuration priority** (highest to lowest):
-1. Environment variables (e.g., `GEMINI_MODEL`)
+1. Environment variables (e.g., `GEMINI_MODEL`, `CO_AUTHOR`)
 2. `.commitgenrc` (repo-local)
 3. `~/.commitgenrc` (global user config)
 4. Built-in defaults
@@ -206,6 +214,7 @@ Create a `.commitgenrc` JSON file in your repo (or `~/.commitgenrc` globally) to
 - `auto_pull`: Automatically pull before push (default: true)
 - `model`: Gemini model to use (default: `gemini-3.5-flash-lite`)
 - `auto_tag`: Automatically create/move git tags without confirmation prompt (default: `false` for safety)
+- `co_author`: Include Co-Authored-By attribution trailer by default (default: `false`)
 
 ## Windows Right-Click Context Menu Integration
 

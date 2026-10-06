@@ -72,6 +72,7 @@ def print(*args, **kwargs):
             "➖": "-",
             "📦": "[Bin]",
             "📝": "[Diff]",
+            "📍": "[Path]",
         }
         for uni, asc in replacements.items():
             text = text.replace(uni, asc)
@@ -1184,6 +1185,10 @@ def truncate_diff_for_context(diff, max_chars_limit, max_tokens, prompt_overhead
     print_info(f"Diff optimized: ~{len(diff):,} chars (~{estimate_tokens(diff):,} tokens) remaining")
     return diff, True
 
+def format_co_author_trailer(model):
+    """Generate standardized Co-Authored-By git trailer for the AI model."""
+    return f"Co-authored-by: Custom Tool By BKK ({model}) <{model}>"
+
 def load_config():
     """Load config from .commitgenrc (JSON) in the repo or home directory."""
     defaults = {
@@ -1193,7 +1198,8 @@ def load_config():
         "auto_push": False,
         "auto_pull": True,
         "model": "gemini-3.5-flash-lite",
-        "auto_tag": False  # Set to True to skip the tagging confirmation prompt
+        "auto_tag": False,  # Set to True to skip the tagging confirmation prompt
+        "co_author": False  # Set to True to enable Co-Authored-By attribution by default
     }
     for path in [".commitgenrc", os.path.expanduser("~/.commitgenrc")]:
         if os.path.exists(path):
@@ -1311,9 +1317,13 @@ def clear_session_state():
 
 def show_startup_banner():
     """Display a clear startup banner with project context."""
-    print(f"\n{c(COLOR_MAGENTA)}{c(COLOR_BOLD)}{'='*60}{c(COLOR_RESET)}")
+    print(f"{c(COLOR_MAGENTA)}{c(COLOR_BOLD)}{'='*60}{c(COLOR_RESET)}")
     print(f"{c(COLOR_MAGENTA)}{c(COLOR_BOLD)}  CommitGen - AI-Powered Git Commit Generator{c(COLOR_RESET)}")
     print(f"{c(COLOR_MAGENTA)}{c(COLOR_BOLD)}{'='*60}{c(COLOR_RESET)}")
+    dir_path = os.path.abspath(os.getcwd())
+    folder_name = os.path.basename(dir_path) or dir_path
+    print_info(f"📁 Folder: {c(COLOR_GREEN)}{folder_name}{c(COLOR_RESET)}")
+    print_info(f"📍 Dir Path: {c(COLOR_CYAN)}{dir_path}{c(COLOR_RESET)}")
 
 def show_folder_structure(startpath, max_depth=3, max_files_per_dir=10):
     """Display a clean tree view of the project structure."""
@@ -1403,6 +1413,12 @@ def main():
     NON_INTERACTIVE = "--non-interactive" in sys.argv or is_ci_environment()
 
     cli_model = None
+    cli_co_author = None
+    if "--co-author" in sys.argv:
+        cli_co_author = True
+    elif "--no-co-author" in sys.argv:
+        cli_co_author = False
+
     for i, arg in enumerate(sys.argv):
         if arg.startswith("--model="):
             cli_model = arg.split("=", 1)[1]
@@ -1441,10 +1457,7 @@ def main():
     # 1. Print Google Gemini model name
     print_info(f"🤖 AI Model: {c(COLOR_GREEN)}Google Gemini - {model}{c(COLOR_RESET)}")
     
-    # 2. Print folder name and active branch
-    folder_name = os.path.basename(os.getcwd())
-    print_info(f"📁 Project: {c(COLOR_GREEN)}{folder_name}{c(COLOR_RESET)}")
-
+    # 2. Print active branch
     branch_name = run_git_cmd(["branch", "--show-current"])
     if not branch_name:
         branch_name = run_git_cmd(["rev-parse", "--short", "HEAD"]) or "unknown"
@@ -1804,6 +1817,7 @@ Git Diff:
             'curr_version': curr_version,
             'commit_mode': commit_mode,
             'model': model,
+            'include_co_author': config.get("co_author", False),
             'prompt_text': prompt_text if 'prompt_text' in locals() else ''
         })
     else:
@@ -1844,6 +1858,23 @@ Git Diff:
         print_info(f"Commit mode: New commit with {'version tag' if bump_choice != 'none' else 'no version bump'}")
     else:
         print_diff_breakdown(staged, commit_mode)
+
+    # Co-Authored-By attribution prompt (default: 'n')
+    if saved_state and "include_co_author" in saved_state:
+        include_co_author = saved_state["include_co_author"]
+    elif cli_co_author is not None:
+        include_co_author = cli_co_author
+    elif NON_INTERACTIVE:
+        env_ca = os.getenv("CO_AUTHOR") or os.getenv("CO_AUTHORED_BY")
+        include_co_author = env_ca.lower() in ("true", "1", "yes") if env_ca else config.get("co_author", False)
+    else:
+        env_ca = os.getenv("CO_AUTHOR") or os.getenv("CO_AUTHORED_BY")
+        default_ca = "y" if (env_ca and env_ca.lower() in ("true", "1", "yes")) or config.get("co_author", False) else "n"
+        ca_prompt = f"Add Co-Authored-By attribution (Custom Tool By BKK ({model}))? (y/n) [{default_ca}]:"
+        raw_ca = input(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}{ca_prompt}{c(COLOR_RESET)} ").strip().lower()
+        if raw_ca == "":
+            raw_ca = default_ca
+        include_co_author = (raw_ca in ["y", "yes"])
     
     while True:
         if commit_mode == 'new':
@@ -1892,6 +1923,10 @@ Git Diff:
         if description:
             formatted_desc = "\n".join(f"  {line}" if line.strip() else "" for line in description.split("\n"))
             print(f"\n{formatted_desc}")
+        if include_co_author:
+            co_author_trailer = format_co_author_trailer(model)
+            if not description or co_author_trailer not in description:
+                print(f"\n  {c(COLOR_CYAN)}{co_author_trailer}{c(COLOR_RESET)}")
         print(f"{c(COLOR_MAGENTA)}================================================={c(COLOR_RESET)}")
 
         validation_issues = validate_commit_message(f"{display_summary}\n\n{description}" if description else display_summary)
@@ -1914,11 +1949,12 @@ Git Diff:
             print(f"  {c(COLOR_YELLOW)}{c(COLOR_BOLD)}v{c(COLOR_RESET)}) Change version bump")
         else:
             print(f"  {c(COLOR_MAGENTA)}{c(COLOR_BOLD)}m{c(COLOR_RESET)}) Switch Gemini model (current: {model})")
+        print(f"  {c(COLOR_BLUE)}{c(COLOR_BOLD)}t{c(COLOR_RESET)}) Toggle Co-Authored-By attribution (currently: {'yes' if include_co_author else 'no'})")
         print(f"  {c(COLOR_CYAN)}{c(COLOR_BOLD)}d{c(COLOR_RESET)}) View diff")
         print(f"  {c(COLOR_MAGENTA)}{c(COLOR_BOLD)}s{c(COLOR_RESET)}) Spell check")
         print(f"  {c(COLOR_RED)}{c(COLOR_BOLD)}x{c(COLOR_RESET)}) Cancel")
 
-        action = input(f"\nAction [c/e/{'g/m/h/v/' if commit_mode == 'new' else 'm/'}d/s/x] [c]: ").strip().lower()
+        action = input(f"\nAction [c/e/{'g/m/h/v/' if commit_mode == 'new' else 'm/'}t/d/s/x] [c]: ").strip().lower()
         if not action:
             action = "c"
 
@@ -1928,6 +1964,21 @@ Git Diff:
             print_info("Commit cancelled.")
             clear_session_state()
             return prompt_exit_or_restart(NON_INTERACTIVE)
+        elif action == "t":
+            include_co_author = not include_co_author
+            print_info(f"Co-Authored-By attribution {'enabled' if include_co_author else 'disabled'}.")
+            save_session_state({
+                'summary': summary,
+                'description': description,
+                'bump_choice': bump_choice,
+                'staged': staged,
+                'curr_version': curr_version,
+                'commit_mode': commit_mode,
+                'model': model,
+                'include_co_author': include_co_author,
+                'prompt_text': prompt_text if 'prompt_text' in locals() else ''
+            })
+            continue
         elif action == "m":
             new_model = prompt_select_model(model)
             if new_model != model:
@@ -1941,6 +1992,7 @@ Git Diff:
                     'curr_version': curr_version,
                     'commit_mode': commit_mode,
                     'model': model,
+                    'include_co_author': include_co_author,
                     'prompt_text': prompt_text if 'prompt_text' in locals() else ''
                 })
                 if commit_mode == 'new' and prompt_text:
@@ -2096,6 +2148,11 @@ Git Diff:
 
     if description:
         full_commit_msg += f"\n\n{description}"
+
+    if include_co_author:
+        co_author_trailer = format_co_author_trailer(model)
+        if co_author_trailer not in full_commit_msg:
+            full_commit_msg += f"\n\n{co_author_trailer}"
 
     # Dry Run exit
     if DRY_RUN:

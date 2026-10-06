@@ -96,3 +96,10 @@ This document outlines the core architectural and design decisions behind the AI
   - Implements a centralized conditional ANSI color wrapper (`c()`) to prevent color escape codes from leaking in non-TTY or redirected output environments.
   - Employs robust printing fallbacks to quietly suppress/bypass terminal errors if stdout streams are closed or redirected.
   - Substitutes abrupt `sys.exit()` calls with a unified restart prompt (`prompt_exit_or_restart`), wrapped in a top-level execution loop. When the working tree is clean, staging is aborted, a commit is cancelled, or a commit finishes, the user is offered an immediate restart hotkey (`r`) or exit (`Enter`). This enables continuous sessions, allowing users to make changes and commit again without dropping back to the shell, while bounding retries (max 10) to prevent infinite loops.
+
+## 15. Transparent AI Attribution & Context Awareness
+- **Motivation**: When AI tools assist with git history, developers and teams require transparency, control, and immediate context. Developers should instantly see which repository and path they are executing against upon startup, and have an effortless, opt-in mechanism to credit AI generation without imposing unwanted trailers by default.
+- **Implementation**:
+  - **Immediate Startup Context**: `show_startup_banner()` displays the project folder name and absolute directory path before model selection, removing ambiguity when launched from context menus or deeply nested directories.
+  - **Opt-in Git Trailers**: Generates standardized Git trailer format (`Co-authored-by: Custom Tool By BKK ({model}) <{model}>`). Defaults to `n` on interactive prompt to respect team privacy preferences and clean git history by default.
+  - **Flexible In-Flight Control**: Allows users to toggle attribution dynamically on the review screen (`t`), configure project-wide defaults in `.commitgenrc` (`co_author: false`), override via environment variables (`CO_AUTHOR`), or pass CLI flags (`--co-author` / `--no-co-author`).
