@@ -28,6 +28,9 @@ AI_PROMPT_EXCLUDED_EXTENSIONS = {
     ".mkv", ".mp3", ".wav", ".flac", ".ogg", ".m4a"
 }
 
+MAX_RESTARTS = 10
+restart_count = 0
+
 try:
     USE_COLORS = os.getenv("NO_COLOR") is None and sys.stdout.isatty()
 except Exception:
@@ -1393,13 +1396,20 @@ def show_folder_structure(startpath, max_depth=3, max_files_per_dir=10):
 
 def prompt_exit_or_restart(non_interactive=False):
     """Prompt the user to exit or restart CommitGen."""
+    global restart_count
     if non_interactive:
+        return False
+    if restart_count >= MAX_RESTARTS:
+        print_warn(f"Maximum restarts ({MAX_RESTARTS}) reached. Exiting.")
         return False
     while True:
         choice = input(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}Press Enter to exit, or 'r' to restart: {c(COLOR_RESET)}").strip().lower()
         if choice == 'r':
+            restart_count += 1
+            completed_runs = restart_count
             os.system('cls' if os.name == 'nt' else 'clear')
-            print_info("Restarting CommitGen...\n")
+            run_str = f"{completed_runs} run{'s' if completed_runs != 1 else ''} completed"
+            print_info(f"Restarting CommitGen... ({run_str} | Max {MAX_RESTARTS} restarts)")
             return True  # Signal to restart
         else:
             return False  # Signal to exit
@@ -2420,8 +2430,15 @@ Git Diff:
                 print_info("No git remote configured. Skipped push.")
     except subprocess.CalledProcessError as e:
         print_error(f"Failed to complete Git actions: {e}")
+        if restart_count >= MAX_RESTARTS:
+            print_warn(f"Maximum restarts ({MAX_RESTARTS}) reached. Exiting.")
+            return False
         retry = input(f"\n{c(COLOR_CYAN)}Restart CommitGen? (y/N) [n]: {c(COLOR_RESET)}").strip().lower()
         if retry == 'y':
+            restart_count += 1
+            os.system('cls' if os.name == 'nt' else 'clear')
+            run_str = f"{restart_count} run{'s' if restart_count != 1 else ''} completed"
+            print_info(f"Restarting CommitGen... ({run_str} | Max {MAX_RESTARTS} restarts)")
             return True
         return False
 
@@ -2429,28 +2446,26 @@ Git Diff:
     return prompt_exit_or_restart(NON_INTERACTIVE)
 
 if __name__ == "__main__":
-    restart_count = 0
-    MAX_RESTARTS = 10
-    
     while True:
-        if restart_count >= MAX_RESTARTS:
-            print_warn(f"Maximum restarts ({MAX_RESTARTS}) reached. Exiting.")
-            break
-            
         try:
             should_restart = main()
             if not should_restart:
                 break
-            restart_count += 1
         except KeyboardInterrupt:
             print("\n\nAborted by user.")
             break
         except Exception as e:
             print_error(f"An unexpected error occurred: {e}")
+            if restart_count >= MAX_RESTARTS:
+                print_warn(f"Maximum restarts ({MAX_RESTARTS}) reached. Exiting.")
+                break
             retry = input(f"\n{c(COLOR_CYAN)}Would you like to restart? (y/n) [n]: {c(COLOR_RESET)}").strip().lower()
             if retry != 'y':
                 break
             restart_count += 1
+            os.system('cls' if os.name == 'nt' else 'clear')
+            run_str = f"{restart_count} run{'s' if restart_count != 1 else ''} completed"
+            print_info(f"Restarting CommitGen... ({run_str} | Max {MAX_RESTARTS} restarts)")
     
     print("Goodbye! 👋")
     sys.exit(0)
