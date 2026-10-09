@@ -6,7 +6,7 @@ This document describes the technical implementation details of the AI Git Commi
 
 ```
 git-commit/
-├── git_commit.py              # Core CLI tool logic (~2,400 lines)
+├── git_commit.py              # Core CLI tool logic (~2,500 lines)
 ├── register.py                # Windows Registry integration helper
 ├── .env.template              # Configuration environment template
 ├── .env                       # Local configuration (contains API key, gitignored)
@@ -30,6 +30,8 @@ This script implements the main execution loop. It is designed to be fully self-
 **Core helpers**
 - `c(color_code)`: Conditional color helper that returns the color code if `USE_COLORS` is enabled, otherwise returns an empty string. Prevents ANSI color code leaking on non-TTY environments.
 - `print_success(msg)`, `print_info(msg)`, `print_warn(msg)`, `print_error(msg)`: Colored output helpers with NO_COLOR/c() support.
+- `flush_input_buffer()`: Flushes unconsumed user keystrokes from the console input buffer. On Windows, it clears both the C runtime keyboard buffer (`msvcrt.kbhit()` / `msvcrt.getwch()`) and the Win32 console input queue (`kernel32.FlushConsoleInputBuffer` on `STD_INPUT_HANDLE`). On POSIX systems, it issues `termios.tcflush(sys.stdin, termios.TCIFLUSH)`. Safely bypassed if `sys.stdin.isatty()` is `False` to maintain compatibility with piped inputs, automated tests, and CI/CD pipelines.
+- `input(prompt="")`: Module-level wrapper around Python's built-in `input()` that invokes `flush_input_buffer()` immediately before rendering the prompt. Ensures the user only provides input after seeing the display prompt, preventing accidental double-Enter keypresses or keystrokes entered during background operations (e.g. AI calls, git diff calculations) from prematurely auto-advancing the next prompt.
 - `show_startup_banner()`: Displays the CommitGen header banner alongside the active project folder name and absolute directory path.
 - `format_co_author_trailer(model)`: Generates the standardized git commit trailer `Co-authored-by: Custom Tool By BKK ({model}) <{model}>`.
 - `prompt_exit_or_restart(non_interactive=False)`: Prompts the user with `Press Enter to exit, or 'r' to restart:` and returns `True` if `r` is entered (clearing the console, displaying completed runs and max 10 restart limit info, and signaling the runner loop to re-execute `main()`), or `False` to exit cleanly. Bypassed in non-interactive/CI mode.

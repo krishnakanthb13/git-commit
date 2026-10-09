@@ -88,6 +88,45 @@ def print(*args, **kwargs):
                 # Last resort: suppress output rather than re-raising the same error
                 pass
 
+def flush_input_buffer():
+    """Flush pending user keystrokes from the console input buffer.
+    
+    Prevents accidental double-enters or premature keystrokes from bleeding
+    into subsequent prompts before they are displayed.
+    """
+    if not sys.stdin.isatty():
+        return
+    try:
+        if os.name == 'nt':
+            import msvcrt
+            import ctypes
+            while msvcrt.kbhit():
+                try:
+                    msvcrt.getwch()
+                except Exception:
+                    break
+            try:
+                handle = ctypes.windll.kernel32.GetStdHandle(-10)  # STD_INPUT_HANDLE = -10
+                if handle and handle != -1:
+                    ctypes.windll.kernel32.FlushConsoleInputBuffer(handle)
+            except Exception:
+                pass
+        else:
+            import termios
+            try:
+                termios.tcflush(sys.stdin, termios.TCIFLUSH)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+_orig_input = input
+
+def input(prompt=""):
+    """Wrapped input that flushes unconsumed keystrokes before displaying prompt."""
+    flush_input_buffer()
+    return _orig_input(prompt)
+
 def print_success(msg):
     if USE_COLORS:
         print(f"{COLOR_GREEN}{COLOR_BOLD}[OK] {msg}{COLOR_RESET}")

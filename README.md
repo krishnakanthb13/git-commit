@@ -47,6 +47,7 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 27. 🤖 **AI Prompt Optimization**: Excludes images, videos, audio, PDFs, and binary files from the Gemini prompt to save tokens and improve analysis quality. Files are still committed normally — only AI analysis is affected.
 28. 👥 **Co-Authored-By Attribution**: Optional git commit trailer (`Co-authored-by: Custom Tool By BKK ({model}) <{model}>`) to credit AI generation with interactive prompting (defaults to `n`), dynamic review menu toggle (`t`), CLI flags (`--co-author`/`--no-co-author`), and configuration support.
 29. 📁 **Startup Directory Context**: Immediately displays the active project folder name and absolute directory path at launch before model selection.
+30. 🛡️ **Input Buffer Protection**: Automatically purges unconsumed console input buffers before rendering prompts, preventing accidental double-Enter keypresses or premature keystrokes from auto-advancing subsequent menus.
 
 **A comprehensive Git commit tool** that handles the entire workflow from staging to CI monitoring with excellent error handling and user experience.
 
@@ -65,7 +66,7 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 - 📦 **Semantic Versioning**: Auto-detects versions from git tags, recent commit messages, `package.json`, or `pyproject.toml`. Parses versions into integer tuples (supporting standard SemVer and multi-part versions like `v1.1.1.11`) and sorts choices in descending order so the highest version is the default option (`1`). Prompts for confirmation if a lower version is selected before proceeding or returning to selection. Automatically stages version files after a bump. Skips version bump for amend mode by default. Includes local version collision detection (warnings when proposed bump already exists as a local tag) and remote tag check to prompt before overwriting.
 - 📜 **Changelog & PR Management**: Automatically updates `CHANGELOG.md` and can create GitHub Pull Requests using `gh` CLI.
 - 🤖 **Smart Context**: Detects architectural scope from file paths, extracts issue numbers from branch names, respects `.git/COMMIT_TEMPLATE` and `.github/PULL_REQUEST_TEMPLATE.md`, and learns from your repo's commit history. For amend mode, includes the original commit message as context.
-- 🔒 **Robustness**: Binary file existence checks, pre-commit hook integration, session recovery (crash-safe with commit mode preservation), startup dependency checks, safe ANSI color fallback via `c()` helper, and remote/local tag conflict checks.
+- 🔒 **Robustness & Input Hygiene**: Proactive console input buffer flushing (`FlushConsoleInputBuffer` and `msvcrt` on Windows, `tcflush` on POSIX) eliminates skipped prompts caused by accidental double-Enters or premature keystrokes while preserving piped input; binary file existence checks, pre-commit hook integration, session recovery (crash-safe with commit mode preservation), startup dependency checks, safe ANSI color fallback via `c()` helper, and remote/local tag conflict checks.
 - ⚙️ **Configurable**: Per-repo `.commitgenrc` JSON config for default bump type, diff size, and model. Global config via `~/.commitgenrc`.
 - 🚀 **CI/CD Ready**: `--dry-run` and `--non-interactive` flags for headless/automated environments. Auto-detects CI environments (GitHub Actions, GitLab CI, Jenkins, Travis).
 - 🔍 **Commit Validation**: Validates commit messages against conventional commit format (72 char limit, proper format, blank line after title). Shows warnings in review screen for format violations and version tag collisions.
@@ -86,7 +87,7 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 
 ```
 git-commit/
-├── git_commit.py              ← main tool (~2,400 lines)
+├── git_commit.py              ← main tool (~2,500 lines)
 ├── register.py                ← install/uninstall context menu (winreg)
 ├── .env.template              ← copy to .env and add your API key
 ├── .env                       ← local configuration (contains API key, gitignored)
