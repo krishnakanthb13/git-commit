@@ -51,9 +51,26 @@ def test_drop_env_files_filters_secrets_and_keeps_templates():
 
 
 def test_redact_secrets_only_touches_matches():
-    assert "[REDACTED]" in gc.redact_secrets("AKIAABCDEFGHIJKLMNOP")
-    assert "[REDACTED]" in gc.redact_secrets("postgres://user:pass@host/db")
+    # Built at runtime so this file never contains a literal secret-shaped
+    # string (which would itself be redacted from the AI prompt).
+    aws_key_id = "AKIA" + "ABCDEFGHIJKLMNOP"
+    credential_url = "postgres://" + "user:pass" + "@host/db"
+
+    assert "[REDACTED]" in gc.redact_secrets(aws_key_id)
+    assert "[REDACTED]" in gc.redact_secrets(credential_url)
     assert gc.redact_secrets("x = compute(1, 2)") == "x = compute(1, 2)"
+
+
+def test_redact_secrets_reports_masked_category(capsys):
+    aws_key_id = "AKIA" + "ABCDEFGHIJKLMNOP"
+    result = gc.redact_secrets(aws_key_id)
+    assert result == "[REDACTED]"
+
+    out = capsys.readouterr().out
+    assert "AWS access key id" in out
+    # The secret itself is never echoed back, only a short masked prefix.
+    assert aws_key_id not in out
+    assert "AKIA" + "*" * 16 in out
 
 
 def test_load_dotenv_does_not_override_real_environment(tmp_path, monkeypatch):

@@ -26,7 +26,7 @@ This script implements the main execution loop. It is designed to be fully self-
 
 - `AI_PROMPT_EXCLUDED_EXTENSIONS`: Set of file extensions excluded from the Gemini AI prompt (images, media, binary formats). These files can still be committed — they are only excluded from AI analysis to save tokens and avoid binary parsing issues.
 - `GIT_DIR`: Absolute path of the repository's Git directory. Initialized to `.git` and replaced by `init_git_dir()` at startup so session state and commit templates resolve correctly even when the tool is launched from a subdirectory.
-- `SECRET_PATTERNS`: Compiled regex list of high-confidence secret formats (AWS access keys, GitHub/Gemini tokens, bearer tokens, credentials embedded in URLs) used by `redact_secrets()` to scrub the AI prompt.
+- `SECRET_PATTERNS`: List of `(category, compiled_regex)` pairs for high-confidence secret formats (AWS access keys, GitHub/Gemini tokens, bearer tokens, credentials embedded in URLs) used by `redact_secrets()` to scrub the AI prompt.
 
 ### Main Functions
 
@@ -42,7 +42,8 @@ This script implements the main execution loop. It is designed to be fully self-
 - `load_dotenv()`: Parses `.env` files without external dependencies. Precedence (lowest → highest) is tool-directory `.env`, then project `.env` (current working directory); real environment variables always win because a key already present in `os.environ` is never overwritten. `.env` files themselves use first-wins semantics.
 - `run_git_cmd(args, strip=True)`: Subprocess wrapper for git commands; returns stdout or `None`.
 - `init_git_dir()`: Resolves the repository's Git directory via `git rev-parse --absolute-git-dir` and stores it in the `GIT_DIR` global. Called at the start of `main()`; returns `False` (and the tool exits) when not inside a Git repository.
-- `redact_secrets(text)`: Replaces high-confidence secret patterns with `[REDACTED]` before text is sent to the Gemini API and prints a warning with the match count. Only the prompt is affected — the committed diff is never modified.
+- `redact_secrets(text)`: Replaces high-confidence secret patterns with `[REDACTED]` before text is sent to the Gemini API. It prints the match count plus a per-category line with a masked preview (e.g. `AWS access key id: AKIA****************`), so genuine detections can be told apart from fixtures. Only the prompt is affected — the committed diff is never modified.
+- `_mask_secret(value)`: Returns a short, non-reversible preview of a matched secret (a 4-character prefix followed by asterisks), used by `redact_secrets()` for diagnostics.
 - `detect_version()`: Priority order — checks git tags, git commit messages, `package.json`, and `pyproject.toml`. Collects all detected versions, parses them into integer tuples (supporting standard SemVer as well as multi-part versions like `v1.1.1.11`), and sorts the choices descending so the largest version is listed first (Option 1). In interactive mode, if a lower version (or a custom lower version) is selected, it asks for user confirmation before proceeding, allowing the user to confirm or return to the selection list. In non-interactive mode, it auto-selects the highest available version. For custom base versions, it automatically prepends `v` if missing to maintain consistency.
 - `validate_commit_message(message)`: Validates commit format (72 char limit, conventional format, blank line). Returns list of issues.
 - `check_remote_tag(tag_name)`: Queries the remote with `git ls-remote --tags --refs origin refs/tags/<tag_name>` and matches the exact ref, so a short name such as `v1.2.3` cannot glob-match `v1.2.34`. Checked before the local tag is created.

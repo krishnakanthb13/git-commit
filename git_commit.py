@@ -36,16 +36,16 @@ restart_count = 0
 # the tool is launched from a subdirectory.
 GIT_DIR = ".git"
 
-# High-confidence secret patterns redacted from the AI prompt only. The diff
-# that is actually committed is never modified.
+# (category, pattern) pairs for high-confidence secret formats. Only the AI
+# prompt is redacted; the diff that is actually committed is never modified.
 SECRET_PATTERNS = [
-    re.compile(r'\bAKIA[0-9A-Z]{16}\b'),
-    re.compile(r'(?i)\b(aws_secret_access_key|aws_access_key_id)\b\s*[:=]\s*\S+'),
-    re.compile(r'\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}\b'),
-    re.compile(r'\b(?:gsk|sk)-[A-Za-z0-9_\-]{20,}\b'),
-    re.compile(r'\bAIza[0-9A-Za-z_\-]{30,}\b'),
-    re.compile(r'(?i)\bbearer\s+[A-Za-z0-9._\-]{20,}'),
-    re.compile(r'(?i)\b[a-z][a-z0-9+.\-]*://[^:/\s]+:[^@/\s]+@'),
+    ("AWS access key id", re.compile(r'\bAKIA[0-9A-Z]{16}\b')),
+    ("AWS secret/access key", re.compile(r'(?i)\b(aws_secret_access_key|aws_access_key_id)\b\s*[:=]\s*\S+')),
+    ("GitHub token", re.compile(r'\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}\b')),
+    ("API key (sk-/gsk-)", re.compile(r'\b(?:gsk|sk)-[A-Za-z0-9_\-]{20,}\b')),
+    ("Google API key", re.compile(r'\bAIza[0-9A-Za-z_\-]{30,}\b')),
+    ("Bearer token", re.compile(r'(?i)\bbearer\s+[A-Za-z0-9._\-]{20,}')),
+    ("Credentials in URL", re.compile(r'(?i)\b[a-z][a-z0-9+.\-]*://[^:/\s]+:[^@/\s]+@')),
 ]
 
 try:
@@ -275,19 +275,43 @@ def init_git_dir():
         return True
     return False
 
+def _mask_secret(value):
+    """Return a short, non-reversible preview used to identify a redaction.
+
+    Keeps only a tiny prefix (enough to recognise the pattern family, e.g.
+    'AKIA' or 'post') and masks the rest, so diagnostics never re-expose the
+    secret itself.
+    """
+    if len(value) <= 4:
+        return "*" * len(value)
+    return value[:4] + "*" * (len(value) - 4)
+
 def redact_secrets(text):
     """Redact likely secrets before text is sent to the third-party AI API.
 
     Only the prompt is affected; the diff that gets committed is untouched.
-    Aborts nothing and reports how many matches were redacted.
+    Reports the total count plus a masked preview per category, so genuine
+    detections can be told apart from fixtures (for example, example keys that
+    live in test files).
     """
     redacted = text
-    hits = 0
-    for pattern in SECRET_PATTERNS:
-        redacted, count = pattern.subn("[REDACTED]", redacted)
-        hits += count
-    if hits:
-        print_warn(f"Redacted {hits} possible secret(s) from the AI prompt (commit content is unchanged).")
+    found = []
+
+    def _replacer(category):
+        def _replace(match):
+            found.append((category, _mask_secret(match.group(0))))
+            return "[REDACTED]"
+        return _replace
+
+    for category, pattern in SECRET_PATTERNS:
+        redacted, _ = pattern.subn(_replacer(category), redacted)
+
+    if found:
+        print_warn(f"Redacted {len(found)} possible secret(s) from the AI prompt (commit content is unchanged).")
+        for category, preview in found[:5]:
+            print_info(f"  - {category}: {preview}")
+        if len(found) > 5:
+            print_info(f"  - ... and {len(found) - 5} more")
     return redacted
 
 def get_consolidated_diff_stats(staged=None, commit_mode='new'):

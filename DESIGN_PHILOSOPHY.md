@@ -74,7 +74,7 @@ This document outlines the core architectural and design decisions behind the AI
   - Recursive re-scan after unstaging to ensure clean file lists
   - AI prompt exclusion list (`AI_PROMPT_EXCLUDED_EXTENSIONS`) prevents binary/media files from being sent to Gemini, saving tokens and avoiding parsing issues while still allowing normal git commits
   - Resumed sessions re-apply the `.env` guard (`drop_env_files()`) over their restored staged list, so a file that was staged before a crash is filtered again before commit
-  - `redact_secrets()` scrubs high-confidence secret patterns (AWS access keys, GitHub/Gemini tokens, bearer tokens, credentials embedded in URLs) from the AI prompt before it is sent, while leaving the committed diff untouched
+  - `redact_secrets()` scrubs high-confidence secret patterns (AWS access keys, GitHub/Gemini tokens, bearer tokens, credentials embedded in URLs) from the AI prompt before it is sent, while leaving the committed diff untouched. It reports each match by category with a masked preview so fixtures (e.g. example keys in test files) are distinguishable from real secrets.
 
 ## 13. Post-Commit Workflow Automation
 - **Motivation**: Committing is only step one of modern development. A professional tool should support the full lifecycle up to deployment.
