@@ -31,6 +31,23 @@ AI_PROMPT_EXCLUDED_EXTENSIONS = {
 MAX_RESTARTS = 10
 restart_count = 0
 
+# Absolute path of the repository's .git directory. Resolved at startup by
+# init_git_dir() so that session state and commit templates keep working when
+# the tool is launched from a subdirectory.
+GIT_DIR = ".git"
+
+# High-confidence secret patterns redacted from the AI prompt only. The diff
+# that is actually committed is never modified.
+SECRET_PATTERNS = [
+    re.compile(r'\bAKIA[0-9A-Z]{16}\b'),
+    re.compile(r'(?i)\b(aws_secret_access_key|aws_access_key_id)\b\s*[:=]\s*\S+'),
+    re.compile(r'\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}\b'),
+    re.compile(r'\b(?:gsk|sk)-[A-Za-z0-9_\-]{20,}\b'),
+    re.compile(r'\bAIza[0-9A-Za-z_\-]{30,}\b'),
+    re.compile(r'(?i)\bbearer\s+[A-Za-z0-9._\-]{20,}'),
+    re.compile(r'(?i)\b[a-z][a-z0-9+.\-]*://[^:/\s]+:[^@/\s]+@'),
+]
+
 try:
     USE_COLORS = os.getenv("NO_COLOR") is None and sys.stdout.isatty()
 except Exception:
@@ -127,6 +144,18 @@ def input(prompt=""):
     flush_input_buffer()
     return _orig_input(prompt)
 
+def prompt_restart(message="Would you like to restart CommitGen? (y/n) [n]:"):
+    """Ask whether to restart, returning False safely on EOF or interrupt.
+
+    Prevents an unhandled EOFError crash loop when stdin is closed (piped
+    input or CI) while still honouring a real 'y' answer.
+    """
+    try:
+        answer = input(f"\n{c(COLOR_CYAN)}{message}{c(COLOR_RESET)} ").strip().lower()
+        return answer == 'y'
+    except (EOFError, KeyboardInterrupt):
+        return False
+
 def print_success(msg):
     if USE_COLORS:
         print(f"{COLOR_GREEN}{COLOR_BOLD}[OK] {msg}{COLOR_RESET}")
@@ -176,8 +205,20 @@ def print_token_usage(ai_res):
         print_info(f"AI Tokens: {details}")
 
 def load_dotenv():
-    """Simple parser to load .env variables without external dependencies."""
-    def load_from_path(env_path):
+    """Load .env variables without external dependencies.
+
+    Precedence (lowest to highest):
+      1. Real environment variables (never overridden)
+      2. Tool-directory .env
+      3. Project .env in the current working directory
+
+    .env files use first-wins semantics, so the project .env (collected
+    first) overrides the tool-directory .env. Variables already present in
+    the real environment always take precedence over any .env file.
+    """
+    file_vars = {}
+
+    def collect_from_path(env_path):
         if os.path.exists(env_path):
             with open(env_path, "r", encoding="utf-8") as f:
                 for line in f:
@@ -188,15 +229,22 @@ def load_dotenv():
                         key, val = line.split("=", 1)
                         # Strip quotes if present
                         val = val.strip().strip('"').strip("'")
-                        os.environ[key.strip()] = val
+                        # First .env file to define a key wins
+                        file_vars.setdefault(key.strip(), val)
 
-    # Load from the directory where the script is located
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    load_from_path(os.path.join(script_dir, ".env"))
+    cwd_is_script_dir = os.path.abspath(os.getcwd()) == os.path.abspath(script_dir)
 
-    # Load from the current working directory (so cwd can override script dir if they differ)
-    if os.path.abspath(os.getcwd()) != os.path.abspath(script_dir):
-        load_from_path(".env")
+    # The project .env (cwd) takes precedence over the tool-directory .env,
+    # so it is collected first.
+    if not cwd_is_script_dir:
+        collect_from_path(".env")
+    collect_from_path(os.path.join(script_dir, ".env"))
+
+    # Real environment variables always win over any .env file.
+    for key, val in file_vars.items():
+        if key and key not in os.environ:
+            os.environ[key] = val
 
 def run_git_cmd(args, strip=True):
     """Run a git command and return its stdout, or None on failure."""
@@ -212,6 +260,35 @@ def run_git_cmd(args, strip=True):
         return res.stdout.strip() if strip else res.stdout
     except subprocess.CalledProcessError:
         return None
+
+def init_git_dir():
+    """Resolve the absolute path of the repository's .git directory.
+
+    Session state and commit templates live under .git, so using an absolute
+    path keeps them working when the tool is launched from a subdirectory.
+    Returns True when a Git repository was detected.
+    """
+    global GIT_DIR
+    git_dir = run_git_cmd(["rev-parse", "--absolute-git-dir"])
+    if git_dir:
+        GIT_DIR = git_dir
+        return True
+    return False
+
+def redact_secrets(text):
+    """Redact likely secrets before text is sent to the third-party AI API.
+
+    Only the prompt is affected; the diff that gets committed is untouched.
+    Aborts nothing and reports how many matches were redacted.
+    """
+    redacted = text
+    hits = 0
+    for pattern in SECRET_PATTERNS:
+        redacted, count = pattern.subn("[REDACTED]", redacted)
+        hits += count
+    if hits:
+        print_warn(f"Redacted {hits} possible secret(s) from the AI prompt (commit content is unchanged).")
+    return redacted
 
 def get_consolidated_diff_stats(staged=None, commit_mode='new'):
     """Get consolidated diff breakdown: additions (+), deletions (-), and files changed."""
@@ -380,24 +457,16 @@ def detect_version():
         if ver:
             valid_choices.append((ver, name))
 
-    def parse_semver_key(v_str):
-        clean = v_str.lstrip("vV")
-        # Extract all numeric segments (e.g. "1.1.1.11" -> (1, 1, 1, 11))
-        parts = re.findall(r"\d+", clean)
-        if parts:
-            return tuple(int(p) for p in parts)
-        return (0, 0, 0)
-
     if not valid_choices:
         print_info("No versions found. Defaulting to 0.0.0.")
         return "0.0.0", "default"
 
     # Find max length of version key tuples to normalize length for consistent comparisons
-    parsed_keys = [parse_semver_key(v[0]) for v in valid_choices]
+    parsed_keys = [semver_key(v[0]) for v in valid_choices]
     max_len = max(len(k) for k in parsed_keys) if parsed_keys else 3
 
     def parse_normalized_key(v_str):
-        key = parse_semver_key(v_str)
+        key = semver_key(v_str)
         return key + (0,) * (max_len - len(key))
 
     # Filter unique version entries and sort by version descending (highest version first)
@@ -490,11 +559,31 @@ def is_valid_semver(version: str) -> bool:
     pattern = r'^v?(\d+)\.(\d+)\.(\d+)(-[a-zA-Z0-9.]+)?(\+[a-zA-Z0-9.]+)?$'
     return bool(re.match(pattern, version))
 
+def semver_key(version_str):
+    """Extract a numeric tuple from a version string (e.g. 'v1.2.3.4' -> (1, 2, 3, 4))."""
+    clean = version_str.lstrip("vV")
+    parts = re.findall(r"\d+", clean)
+    if parts:
+        return tuple(int(p) for p in parts)
+    return (0, 0, 0)
+
+def is_version_regression(proposed, current):
+    """Return True when `proposed` is numerically lower than `current`."""
+    proposed_key = semver_key(proposed)
+    current_key = semver_key(current)
+    max_len = max(len(proposed_key), len(current_key))
+    pad = lambda key: key + (0,) * (max_len - len(key))
+    return pad(proposed_key) < pad(current_key)
+
 def check_remote_tag(tag_name):
-    """Check if a tag exists on the remote."""
+    """Check if an exact tag ref exists on the remote.
+
+    The full 'refs/tags/<name>' pattern is passed so ls-remote's glob handling
+    cannot match unrelated tags (e.g. 'v1.2.3' matching 'v1.2.34').
+    """
     try:
         result = subprocess.run(
-            ["git", "ls-remote", "--tags", "origin", tag_name],
+            ["git", "ls-remote", "--tags", "--refs", "origin", f"refs/tags/{tag_name}"],
             capture_output=True, text=True, check=True
         )
         return bool(result.stdout.strip())
@@ -507,6 +596,16 @@ def version_already_tagged(version: str) -> bool:
     existing = run_git_cmd(["tag", "-l", f"v{clean}", f"{clean}"])
     return bool(existing)
 
+def move_tag_to_head(tag):
+    """Move a tag to HEAD, preserving annotated tags (type and message)."""
+    tag_type = run_git_cmd(["cat-file", "-t", f"refs/tags/{tag}"])
+    if tag_type == "tag":
+        tag_message = run_git_cmd(["for-each-ref", f"refs/tags/{tag}", "--format=%(contents)"])
+        if tag_message:
+            subprocess.run(["git", "tag", "-f", "-a", tag, "-m", tag_message, "HEAD"], check=True)
+            return
+    subprocess.run(["git", "tag", "-f", tag, "HEAD"], check=True)
+
 def get_recent_commits(n=3):
     """Get last N commit messages for context."""
     log = run_git_cmd(["log", f"-{n}", "--oneline", "--no-decorate"])
@@ -518,7 +617,7 @@ def get_last_commit_message():
 
 def load_commit_template():
     """Load commit template if exists."""
-    template_path = os.path.join('.git', 'COMMIT_TEMPLATE')
+    template_path = os.path.join(GIT_DIR, 'COMMIT_TEMPLATE')
     if os.path.exists(template_path):
         with open(template_path, 'r', encoding='utf-8') as f:
             return f.read().strip()
@@ -549,7 +648,12 @@ def extract_issue_references():
     return list(refs)
 
 def update_changelog(version, summary, description):
-    """Update CHANGELOG.md if it exists."""
+    """Update CHANGELOG.md if it exists.
+
+    Inserts a new version entry, or replaces the existing entry for the same
+    version in place. Replacing prevents duplicate entries when re-committing
+    or fresh-amending the same version.
+    """
     changelog_path = "CHANGELOG.md"
     if not os.path.exists(changelog_path):
         return
@@ -558,7 +662,7 @@ def update_changelog(version, summary, description):
     date_str = time.strftime("%Y-%m-%d")
     clean_version = version.lstrip("vV")
     
-    entry = f"\n## [v{clean_version}] - {date_str}\n\n### Changes\n\n- {summary}\n"
+    entry = f"## [v{clean_version}] - {date_str}\n\n### Changes\n\n- {summary}\n"
     if description:
         # Indent the description bullets under the main summary bullet to preserve hierarchy
         # Empty or whitespace-only lines are normalized to empty strings to prevent trailing spaces
@@ -568,11 +672,23 @@ def update_changelog(version, summary, description):
     with open(changelog_path, 'r', encoding='utf-8') as f:
         content = f.read()
     
-    insert_pos = content.find('\n## ')
-    if insert_pos == -1:
-        content += entry
+    # Replace an existing entry for this exact version, if present. An entry
+    # runs from its '## ' heading to the next '## ' heading (or end of file).
+    heading_re = re.compile(r"^## \[v" + re.escape(clean_version) + r"\].*$", re.MULTILINE)
+    heading_match = heading_re.search(content)
+    if heading_match:
+        next_heading = re.search(r"^## ", content[heading_match.end():], re.MULTILINE)
+        block_end = heading_match.end() + next_heading.start() if next_heading else len(content)
+        content = content[:heading_match.start()] + entry + "\n" + content[block_end:]
     else:
-        content = content[:insert_pos] + entry + content[insert_pos:]
+        # Insert before the first existing version heading; append when none exist.
+        first_heading = re.search(r"^## ", content, re.MULTILINE)
+        if first_heading:
+            content = content[:first_heading.start()] + entry + "\n" + content[first_heading.start():]
+        else:
+            if content and not content.endswith("\n"):
+                content += "\n"
+            content += "\n" + entry
     
     with open(changelog_path, 'w', encoding='utf-8') as f:
         f.write(content)
@@ -650,6 +766,42 @@ def update_version_in_files(new_version):
             print_warn(f"Failed to update pyproject.toml: {e}")
 
 
+def snapshot_files(paths):
+    """Read file contents into a rollback snapshot (None for missing files)."""
+    snapshot = {}
+    for path in paths:
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    snapshot[path] = f.read()
+            except Exception:
+                snapshot[path] = None
+    return snapshot
+
+def restore_files_snapshot(snapshot):
+    """Restore snapshotted files and unstage them (rollback for failed commits).
+
+    Prevents version files and the changelog from drifting upward when a
+    commit fails and the session is retried, while preserving the user's own
+    working-tree edits. Files whose content is unchanged since the snapshot
+    (i.e. the tool never rewrote them) are left completely alone, so manual
+    staging performed by the user is never discarded.
+    """
+    for path, content in snapshot.items():
+        if content is None:
+            continue
+        try:
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    if f.read() == content:
+                        continue
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(content)
+            run_git_cmd(["restore", "--staged", path])
+        except Exception as e:
+            print_warn(f"Could not roll back {path}: {e}")
+
+
 def is_env_file(filepath):
     """Check if a file is a secret .env file or a variant (excluding safe templates like .env.template, .env.example, etc.)."""
     name = os.path.basename(filepath).lower()
@@ -661,6 +813,23 @@ def is_env_file(filepath):
         or name.startswith(".env.")
         or name == ".envrc"
     )
+
+def drop_env_files(files):
+    """Filter .env files out of a file list, warning about anything dropped.
+
+    Used on resumed sessions, which rebuild their staged file list from saved
+    state instead of re-reading git status.
+    """
+    kept = []
+    dropped = []
+    for f in files:
+        if is_env_file(f):
+            dropped.append(f)
+        else:
+            kept.append(f)
+    if dropped:
+        print_warn(f"Security: Ignoring .env file(s): {', '.join(dropped)}")
+    return kept
 
 def should_exclude_from_ai(filepath):
     """Check if a file should be excluded from AI diff analysis (images, media, binary)."""
@@ -685,7 +854,16 @@ def perform_git_pull():
             remotes = run_git_cmd(["remote"])
             remote = remotes.split()[0] if remotes else "origin"
         
-        target_branch = branch_name or "main"
+        # Prefer the current branch, then the remote's default branch
+        # (refs/remotes/<remote>/HEAD), then init.defaultBranch, then 'main'.
+        target_branch = branch_name or None
+        if not target_branch:
+            remote_head = run_git_cmd(["symbolic-ref", "--short", f"refs/remotes/{remote}/HEAD"])
+            if remote_head and "/" in remote_head:
+                target_branch = remote_head.split("/", 1)[1]
+        if not target_branch:
+            target_branch = run_git_cmd(["config", "init.defaultBranch"]) or "main"
+        
         fallback_res = subprocess.run(["git", "pull", "--rebase", remote, target_branch], capture_output=True, text=True)
         return fallback_res
         
@@ -925,10 +1103,34 @@ def prompt_stage_files(staged, unstaged, untracked):
                 print_warn("No files selected.")
                 return False
 
+            # An unstaged rename appears as a deleted file plus an untracked
+            # file (or an untracked directory). Stage matching deletions
+            # alongside newly added files so the rename is recorded atomically
+            # instead of duplicating the file.
+            deleted_by_name = {}
+            for candidate in unstaged:
+                if details.get(candidate, {}).get("unstaged") == "deleted":
+                    deleted_by_name.setdefault(os.path.basename(candidate), []).append(candidate)
+
             for idx in indices:
                 f, _, _ = all_available[idx]
+                # Expand untracked directories before staging: once 'git add'
+                # runs, the files are no longer reported as untracked.
+                is_untracked = bool(details.get(f, {}).get("untracked"))
+                new_names = set()
+                if is_untracked:
+                    if f.endswith("/"):
+                        listed = run_git_cmd(["ls-files", "--others", "--exclude-standard", "-z", "--", f], strip=False) or ""
+                        new_names = {os.path.basename(p) for p in listed.split("\0") if p}
+                    else:
+                        new_names = {os.path.basename(f)}
                 run_git_cmd(["add", f])
                 print_success(f"Staged: {f}")
+                for name in sorted(new_names):
+                    for old_path in list(deleted_by_name.get(name, [])):
+                        run_git_cmd(["add", old_path])
+                        deleted_by_name[name].remove(old_path)
+                        print_success(f"Staged deletion: {old_path} (rename pair of {f})")
             return True
 
 def monitor_ci():
@@ -1210,19 +1412,26 @@ def truncate_diff_for_context(diff, max_chars_limit, max_tokens, prompt_overhead
         print_warn(f"Diff exceeds context window (~{estimate_tokens(diff):,} tokens). Optimizing...")
     
     lines = diff.split('\n')
+    original_tokens = estimate_tokens(diff)
     optimized_lines = []
     current_size = 0
+    budget = max(actual_max_chars - 500, 0)
     
     for line in lines:
         line_size = len(line) + 1
-        if current_size + line_size > actual_max_chars - 500:
+        if current_size + line_size > budget:
             break
         optimized_lines.append(line)
         current_size += line_size
+    
+    # If the very first line already exceeds the budget, keep as much of it as
+    # possible so the AI still receives some content instead of a bare notice.
+    if not optimized_lines and lines and budget > 0:
+        optimized_lines = [lines[0][:budget]]
             
     diff = '\n'.join(optimized_lines)
-    truncation_notice = f"\n... [diff truncated from ~{estimate_tokens(diff):,} to fit limits] ..."
-    diff += truncation_notice
+    if optimized_lines:
+        diff += f"\n... [diff truncated from ~{original_tokens:,} tokens to fit limits] ..."
     
     print_info(f"Diff optimized: ~{len(diff):,} chars (~{estimate_tokens(diff):,} tokens) remaining")
     return diff, True
@@ -1298,7 +1507,7 @@ def is_binary_file(filepath):
     except (IOError, OSError):
         return True
 
-def check_precommit_hooks():
+def check_precommit_hooks(non_interactive=False):
     """Run pre-commit hooks if .pre-commit-config.yaml exists."""
     if not os.path.exists('.pre-commit-config.yaml'):
         return True
@@ -1309,6 +1518,9 @@ def check_precommit_hooks():
         return True
     except subprocess.CalledProcessError:
         print_error("Pre-commit hooks failed!")
+        if non_interactive:
+            print_warn("Non-interactive mode: aborting commit because pre-commit hooks failed.")
+            return False
         choice = input("Commit anyway? (y/n) [n]: ").strip().lower()
         return choice == 'y'
     except FileNotFoundError:
@@ -1329,17 +1541,21 @@ def is_ci_environment():
     """Detect if running inside a CI/CD system."""
     return any(os.getenv(v) for v in ['CI', 'GITHUB_ACTIONS', 'GITLAB_CI', 'JENKINS_URL', 'TRAVIS'])
 
+def session_state_path():
+    """Absolute path of the crash-recovery session state file."""
+    return os.path.join(GIT_DIR, 'COMMITGEN_STATE')
+
 def save_session_state(state):
-    """Persist session state to .git/COMMITGEN_STATE for crash recovery."""
+    """Persist session state under the repository's .git dir for crash recovery."""
     try:
-        with open('.git/COMMITGEN_STATE', 'w', encoding='utf-8') as f:
+        with open(session_state_path(), 'w', encoding='utf-8') as f:
             json.dump(state, f)
     except Exception:
         pass
 
 def load_session_state():
     """Load a previously saved session state if it exists."""
-    path = '.git/COMMITGEN_STATE'
+    path = session_state_path()
     if os.path.exists(path):
         try:
             with open(path, 'r', encoding='utf-8') as f:
@@ -1350,7 +1566,7 @@ def load_session_state():
 
 def clear_session_state():
     """Delete the persisted session state file."""
-    path = '.git/COMMITGEN_STATE'
+    path = session_state_path()
     if os.path.exists(path):
         try:
             os.remove(path)
@@ -1457,6 +1673,10 @@ def main():
     load_dotenv()
     check_dependencies()
 
+    if not init_git_dir():
+        print_error("This tool must be run from inside a Git repository.")
+        sys.exit(1)
+
     # Parse flags
     DRY_RUN = "--dry-run" in sys.argv
     NON_INTERACTIVE = "--non-interactive" in sys.argv or is_ci_environment()
@@ -1490,6 +1710,11 @@ def main():
         sys.exit(1)
 
     config = load_config()
+
+    # Staged-file status details; populated by get_git_files(include_details=True)
+    # and reused by the review screen. Initialized here so every code path
+    # (including resumed sessions) has a safe default.
+    details = {}
 
     show_startup_banner()
 
@@ -1606,7 +1831,7 @@ def main():
             summary = saved_state.get('summary', '')
             description = saved_state.get('description', '')
             bump_choice = saved_state.get('bump_choice', config["default_bump"])
-            staged = saved_state.get('staged', [])
+            staged = drop_env_files(saved_state.get('staged', []))
             curr_version = saved_state.get('curr_version', '0.0.0')
             commit_mode = saved_state.get('commit_mode', 'new')
             model = saved_state.get('model', model)
@@ -1685,7 +1910,7 @@ def main():
 
         # Pre-commit hooks (skip for amend mode if no new files staged beyond what was already committed)
         if commit_mode == 'new' or staged:
-            if not check_precommit_hooks():
+            if not check_precommit_hooks(NON_INTERACTIVE):
                 print_info("Commit cancelled due to hook failures.")
                 return False
 
@@ -1779,6 +2004,7 @@ def main():
             scope_context = f"\nDetected scope: {', '.join(scope)}\n" if scope else ""
 
             print_info(f"Generating commit message via Gemini ({c(COLOR_MAGENTA)}{model}{c(COLOR_RESET)})...")
+            prompt_diff = redact_secrets(diff)
             prompt_text = f"""
 You are a git commit message generator helper.
 Analyze the following git diff and user provided context, then output a structured commit summary and description.
@@ -1796,7 +2022,7 @@ User custom context / notes:
 
 Git Diff:
 ```diff
-{diff}
+{prompt_diff}
 ```
 """
             while True:
@@ -1874,7 +2100,9 @@ Git Diff:
         summary = saved_state.get('summary', 'update: code modifications')
         description = saved_state.get('description', '')
         bump_choice = saved_state.get('bump_choice', config["default_bump"])
-        staged = saved_state.get('staged', [])
+        # Saved state may predate the .env guard or reference files that are no
+        # longer staged, so re-validate before anything is committed.
+        staged = drop_env_files(saved_state.get('staged', []))
         staged_files_for_prompt = staged
         curr_version = saved_state.get('curr_version', '0.0.0')
         commit_mode = saved_state.get('commit_mode', 'new')
@@ -1898,15 +2126,21 @@ Git Diff:
     if ver_match:
         bump_choice = f"custom:{ver_match.group(1)}"
         print_info(f"Auto-detected version from context: {ver_match.group(1)}")
+        if commit_mode == 'new' and is_version_regression(ver_match.group(1), curr_version):
+            print_warn(f"Context version '{ver_match.group(1)}' is lower than current version '{curr_version}'.")
+            confirm = input("Proceed with this lower version anyway? (y/N) [n]: ").strip().lower()
+            if confirm != 'y':
+                bump_choice = config.get("default_bump", "patch")
+                print_info(f"Reverted to default bump: {bump_choice}")
     
     # Summary of what will be committed before the review loop
     if commit_mode == 'new':
         bump_preview = increment_version(curr_version, bump_choice) if bump_choice != "none" else curr_version
         print_info(f"Preparing commit: {c(COLOR_SKY_BLUE)}{curr_version}{c(COLOR_RESET)} → {c(COLOR_GREEN)}{bump_preview}{c(COLOR_RESET)} ({bump_choice} bump)")
-        print_diff_breakdown(staged, commit_mode)
+        print_diff_breakdown(staged_files_for_prompt, commit_mode)
         print_info(f"Commit mode: New commit with {'version tag' if bump_choice != 'none' else 'no version bump'}")
     else:
-        print_diff_breakdown(staged, commit_mode)
+        print_diff_breakdown(staged_files_for_prompt, commit_mode)
 
     # Co-Authored-By attribution prompt (default: 'n')
     if saved_state and "include_co_author" in saved_state:
@@ -1936,7 +2170,7 @@ Git Diff:
         display_summary = summary
         # Detect and strip any existing version prefix from summary (e.g. "v1.2.3 - refactor: ...")
         # Always use the version from the prefix - that's what the user explicitly typed
-        existing_ver_match = re.match(r'^(v?\d+\.\d+\.\d+)\s*-\s*', display_summary)
+        existing_ver_match = re.match(r'^(v?\d+(?:\.\d+)+)\s*-\s*', display_summary)
         if existing_ver_match:
             existing_version = existing_ver_match.group(1)
             display_summary = display_summary[existing_ver_match.end():]
@@ -2003,9 +2237,12 @@ Git Diff:
         print(f"  {c(COLOR_MAGENTA)}{c(COLOR_BOLD)}s{c(COLOR_RESET)}) Spell check")
         print(f"  {c(COLOR_RED)}{c(COLOR_BOLD)}x{c(COLOR_RESET)}) Cancel")
 
-        action = input(f"\nAction [c/e/{'g/m/h/v/' if commit_mode == 'new' else 'm/'}t/d/s/x] [c]: ").strip().lower()
-        if not action:
+        if NON_INTERACTIVE:
             action = "c"
+        else:
+            action = input(f"\nAction [c/e/{'g/m/h/v/' if commit_mode == 'new' else 'm/'}t/d/s/x] [c]: ").strip().lower()
+            if not action:
+                action = "c"
 
         if action == "c":
             break
@@ -2158,6 +2395,12 @@ Git Diff:
                     if not is_valid_semver(custom_ver):
                         print_warn("Warning: custom version doesn't follow strict SemVer (X.Y.Z).")
                 bump_choice = f"custom:{custom_ver}" if custom_ver else "patch"
+                if custom_ver and is_version_regression(custom_ver, curr_version):
+                    print_warn(f"Custom version '{custom_ver}' is lower than current version '{curr_version}'.")
+                    confirm = input("Proceed with this lower version anyway? (y/N) [n]: ").strip().lower()
+                    if confirm != 'y':
+                        bump_choice = "patch"
+                        print_info("Keeping patch bump.")
             else:
                 bump_choice = "patch"
         else:
@@ -2173,7 +2416,7 @@ Git Diff:
 
     # Detect and strip any existing version prefix from summary
     # Always use the version from the prefix - that's what the user explicitly typed
-    existing_ver_match = re.match(r'^(v?\d+\.\d+\.\d+)\s*-\s*', summary)
+    existing_ver_match = re.match(r'^(v?\d+(?:\.\d+)+)\s*-\s*', summary)
     if existing_ver_match:
         existing_version = existing_ver_match.group(1)
         summary = summary[existing_ver_match.end():]
@@ -2214,6 +2457,10 @@ Git Diff:
         clear_session_state()
         return prompt_exit_or_restart(NON_INTERACTIVE)
 
+    # Snapshot files that may be rewritten below so a failed commit can roll
+    # them back. Prevents version/changelog drift when the session is retried.
+    rollback_snapshot = snapshot_files(["package.json", "pyproject.toml", "CHANGELOG.md"])
+
     # Apply version changes (only for new commits)
     if commit_mode == 'new' and bump_choice != "none" and final_version:
         update_version_in_files(final_version)
@@ -2251,20 +2498,21 @@ Git Diff:
             if amended_tags:
                 print_info(f"Original commit had tags: {', '.join(amended_tags)}")
                 auto_tag = config.get("auto_tag", False)
-                if auto_tag:
+                if auto_tag or NON_INTERACTIVE:
                     move_tags = 'y'
                 else:
                     move_tags = input(f"{c(COLOR_CYAN)}Move these tags to the amended commit? (y/n) [y]:{c(COLOR_RESET)} ").strip().lower()
                 if move_tags != 'n':  # Default to yes if user just presses Enter
                     for tag in amended_tags:
-                        subprocess.run(["git", "tag", "-f", tag], check=True)
+                        move_tag_to_head(tag)
                     print_success(f"Tags moved to amended commit locally.")
                 else:
                     print_info("Tags left on original commit. You may need to handle them manually.")
         except subprocess.CalledProcessError as e:
             print_error(f"Amend failed: {e}")
-            retry = input(f"\n{c(COLOR_CYAN)}Would you like to restart CommitGen? (y/n) [n]: {c(COLOR_RESET)}").strip().lower()
-            return retry == 'y'
+            restore_files_snapshot(rollback_snapshot)
+            print_info("Rolled back version/changelog file changes to keep them consistent.")
+            return prompt_restart()
     else:
         # Normal new commit flow
         if final_version and bump_choice != "none":
@@ -2275,10 +2523,24 @@ Git Diff:
             auto_tag = config.get("auto_tag", False)
             if auto_tag:
                 should_tag = True
+            elif NON_INTERACTIVE:
+                should_tag = False
+                print_info("Non-interactive mode: skipping tag creation (set auto_tag=true to enable).")
             else:
                 print_info(f"About to create tag: {tag_name}")
                 approve_tag = input(f"{c(COLOR_CYAN)}Create git tag '{tag_name}'? (y/N) [n]:{c(COLOR_RESET)} ").strip().lower()
                 should_tag = approve_tag == 'y'  # Default to no if user just presses Enter
+
+            # Check the remote before creating the tag so a collision surfaces
+            # before the commit is written rather than during the push.
+            if should_tag and check_remote_tag(tag_name):
+                print_warn(f"Tag '{tag_name}' already exists on the remote.")
+                if NON_INTERACTIVE:
+                    print_warn("Skipping tag creation (non-interactive mode).")
+                    should_tag = False
+                else:
+                    confirm_remote_tag = input(f"{c(COLOR_YELLOW)}Create the local tag anyway? (y/N) [n]:{c(COLOR_RESET)} ").strip().lower()
+                    should_tag = confirm_remote_tag == 'y'
             
             # Update changelog
             update_changelog(final_version, summary, description)
@@ -2295,8 +2557,9 @@ Git Diff:
                     print_info(f'You can tag manually later with: git tag -a {tag_name} -m "Version {tag_name}"')
             except subprocess.CalledProcessError as e:
                 print_error(f"Commit failed: {e}")
-                retry = input(f"\n{c(COLOR_CYAN)}Would you like to restart CommitGen? (y/n) [n]: {c(COLOR_RESET)}").strip().lower()
-                return retry == 'y'
+                restore_files_snapshot(rollback_snapshot)
+                print_info("Rolled back version/changelog file changes to keep them consistent.")
+                return prompt_restart()
         else:
             commit_args = ["git", "commit", "-m", full_commit_msg]
             try:
@@ -2304,8 +2567,9 @@ Git Diff:
                 print_success("Commit created!")
             except subprocess.CalledProcessError as e:
                 print_error(f"Commit failed: {e}")
-                retry = input(f"\n{c(COLOR_CYAN)}Would you like to restart CommitGen? (y/n) [n]: {c(COLOR_RESET)}").strip().lower()
-                return retry == 'y'
+                restore_files_snapshot(rollback_snapshot)
+                print_info("Rolled back version/changelog file changes to keep them consistent.")
+                return prompt_restart()
 
     # 9. Post-Commit Actions (Push, PR, CI)
     # For amend mode, warn about force push
@@ -2321,21 +2585,30 @@ Git Diff:
                 auto_push = config.get("auto_push", False)
                 if auto_push:
                     push_choice = "y"
+                elif NON_INTERACTIVE:
+                    print_info("Non-interactive mode: skipping push (set auto_push=true to enable).")
+                    push_choice = "n"
                 else:
                     prompt_label = f"Push to remote? (y/n) [{default_push_prompt}]:"
-                    raw_input = input(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}{prompt_label}{c(COLOR_RESET)} ").strip().lower()
-                    push_choice = raw_input if raw_input != "" else default_push_prompt
+                    raw_push = input(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}{prompt_label}{c(COLOR_RESET)} ").strip().lower()
+                    push_choice = raw_push if raw_push != "" else default_push_prompt
                 
                 if push_choice == "n":
+                    print_info("Skipped push. Run 'git push' manually when ready.")
                     break
 
                 if commit_mode in ['amend', 'fresh_amend']:
-                    force_push = input(f"{c(COLOR_YELLOW)}This is an amended commit. Force push? (y/n) [y]:{c(COLOR_RESET)} ").strip().lower()
-                    if force_push != 'n':
-                        push_args = ["git", "push", "--force-with-lease"]
-                    else:
-                        print_info("Skipped push. Run 'git push --force-with-lease' manually when ready.")
+                    if NON_INTERACTIVE:
+                        print_info("Amended commit detected. Skipping force push in non-interactive mode; run 'git push --force-with-lease' manually.")
+                        force_push = 'n'
                         push_args = None
+                    else:
+                        force_push = input(f"{c(COLOR_YELLOW)}This is an amended commit. Force push? (y/n) [y]:{c(COLOR_RESET)} ").strip().lower()
+                        if force_push != 'n':
+                            push_args = ["git", "push", "--force-with-lease"]
+                        else:
+                            print_info("Skipped push. Run 'git push --force-with-lease' manually when ready.")
+                            push_args = None
                 else:
                     push_args = ["git", "push"]
                 
@@ -2343,7 +2616,10 @@ Git Diff:
                 if push_args:
                     # Pull before push safety check for non-force pushes
                     if config.get("auto_pull", True) and "--force-with-lease" not in push_args:
-                        pull_choice = input(f"{c(COLOR_CYAN)}{c(COLOR_BOLD)}Pull latest changes from remote? (y/n) [y]:{c(COLOR_RESET)} ").strip().lower()
+                        if NON_INTERACTIVE:
+                            pull_choice = 'y'
+                        else:
+                            pull_choice = input(f"{c(COLOR_CYAN)}{c(COLOR_BOLD)}Pull latest changes from remote? (y/n) [y]:{c(COLOR_RESET)} ").strip().lower()
                         if pull_choice != 'n':
                             print_info("Pulling latest changes from remote (git pull --rebase)...")
                             try:
@@ -2360,10 +2636,14 @@ Git Diff:
                                         push_args = None
                                     else:
                                         print_error(f"Pull failed:\n{pull_res.stderr.strip()}")
-                                        push_override = input(f"\n{c(COLOR_YELLOW)}Pull encountered an issue. Attempt push anyway? (y/N) [n]:{c(COLOR_RESET)} ").strip().lower()
-                                        if push_override != 'y':
+                                        if NON_INTERACTIVE:
                                             push_args = None
                                             print_warn("Aborting push due to pull failure. Please resolve the issue manually.")
+                                        else:
+                                            push_override = input(f"\n{c(COLOR_YELLOW)}Pull encountered an issue. Attempt push anyway? (y/N) [n]:{c(COLOR_RESET)} ").strip().lower()
+                                            if push_override != 'y':
+                                                push_args = None
+                                                print_warn("Aborting push due to pull failure. Please resolve the issue manually.")
                             except Exception as e:
                                 print_warn(f"Failed to execute git pull: {e}")
                     
@@ -2377,7 +2657,9 @@ Git Diff:
                         if commit_mode == 'new' and final_version and bump_choice != "none" and 'tag_name' in locals() and 'should_tag' in locals() and should_tag:
                             # Check if tag already exists on remote
                             if check_remote_tag(tag_name):
-                                overwrite_remote = input(f"\n{c(COLOR_YELLOW)}Tag '{tag_name}' exists on remote. Force push? (y/N) [n]:{c(COLOR_RESET)} ").strip().lower()
+                                overwrite_remote = 'n'
+                                if not NON_INTERACTIVE:
+                                    overwrite_remote = input(f"\n{c(COLOR_YELLOW)}Tag '{tag_name}' exists on remote. Force push? (y/N) [n]:{c(COLOR_RESET)} ").strip().lower()
                                 if overwrite_remote == 'y':
                                     subprocess.run(["git", "push", "origin", tag_name, "--force"], check=True)
                                     print_success(f"Tag '{tag_name}' force-pushed to remote.")
@@ -2395,7 +2677,7 @@ Git Diff:
                         print_success("Push complete!")
                         
                         branch = run_git_cmd(["rev-parse", "--abbrev-ref", "HEAD"])
-                        if branch and branch not in ['main', 'master', 'HEAD']:
+                        if not NON_INTERACTIVE and branch and branch not in ['main', 'master', 'HEAD']:
                             pr_choice = input(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}Create Pull Request for branch '{branch}'? (y/n) [n]:{c(COLOR_RESET)} ").strip().lower()
                             if pr_choice == 'y':
                                 if shutil.which("gh"):
@@ -2412,14 +2694,20 @@ Git Diff:
                                 else:
                                     print_warn("GitHub CLI (gh) is required to create a PR automatically.")
                         
-                        monitor_ci()
+                        if not NON_INTERACTIVE:
+                            monitor_ci()
                         
                     except subprocess.CalledProcessError as e:
                         print_error(f"Push failed: {e}")
+                        if NON_INTERACTIVE:
+                            break
+                        retry_push_choice = input(f"\n{c(COLOR_YELLOW)}Retry push? (Y/n) [y]:{c(COLOR_RESET)} ").strip().lower()
+                        if retry_push_choice == 'n':
+                            break
+                        default_push_prompt = "y"
+                        continue
                 
                 break
-            else:
-                print_info("Skipped push. Run 'git push' manually when ready.")
         else:
             if not NON_INTERACTIVE and shutil.which("gh"):
                 print_info("No git remote configured.")
@@ -2472,14 +2760,13 @@ Git Diff:
         if restart_count >= MAX_RESTARTS:
             print_warn(f"Maximum restarts ({MAX_RESTARTS}) reached. Exiting.")
             return False
-        retry = input(f"\n{c(COLOR_CYAN)}Restart CommitGen? (y/N) [n]: {c(COLOR_RESET)}").strip().lower()
-        if retry == 'y':
-            restart_count += 1
-            os.system('cls' if os.name == 'nt' else 'clear')
-            run_str = f"{restart_count} run{'s' if restart_count != 1 else ''} completed"
-            print_info(f"Restarting CommitGen... ({run_str} | Max {MAX_RESTARTS} restarts)")
-            return True
-        return False
+        if not prompt_restart("Restart CommitGen? (y/N) [n]:"):
+            return False
+        restart_count += 1
+        os.system('cls' if os.name == 'nt' else 'clear')
+        run_str = f"{restart_count} run{'s' if restart_count != 1 else ''} completed"
+        print_info(f"Restarting CommitGen... ({run_str} | Max {MAX_RESTARTS} restarts)")
+        return True
 
     clear_session_state()
     return prompt_exit_or_restart(NON_INTERACTIVE)
@@ -2490,7 +2777,9 @@ if __name__ == "__main__":
             should_restart = main()
             if not should_restart:
                 break
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, EOFError):
+            # EOFError also lands here when stdin closes mid-session (piped
+            # input or CI); exit gracefully instead of looping forever.
             print("\n\nAborted by user.")
             break
         except Exception as e:
@@ -2498,8 +2787,7 @@ if __name__ == "__main__":
             if restart_count >= MAX_RESTARTS:
                 print_warn(f"Maximum restarts ({MAX_RESTARTS}) reached. Exiting.")
                 break
-            retry = input(f"\n{c(COLOR_CYAN)}Would you like to restart? (y/n) [n]: {c(COLOR_RESET)}").strip().lower()
-            if retry != 'y':
+            if not prompt_restart("Would you like to restart? (y/n) [n]:"):
                 break
             restart_count += 1
             os.system('cls' if os.name == 'nt' else 'clear')

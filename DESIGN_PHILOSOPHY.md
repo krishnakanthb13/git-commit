@@ -11,18 +11,18 @@ This document outlines the core architectural and design decisions behind the AI
 - **Implementation**:
   - Uses cost-effective model (`gemini-3.5-flash-lite`, updated from `gemini-3.1-flash-lite`) by default for optimal price-performance ratio, with on-demand switching to `gemini-3.1-flash-lite` or custom models.
   - Structured output (`responseMimeType: "application/json"`) guarantees the model returns precisely a JSON object containing both `summary` and `description`.
-  - Smart Diff Optimization: Large diffs are parsed and truncated thoughtfully. The script prioritizes preserving `diff --git` headers so the model always knows exactly which files were modified, rather than blindly truncating the middle of the alphabet.
+  - Smart Diff Optimization: Large diffs are parsed and truncated thoughtfully. The script prioritizes preserving `diff --git` headers so the model always knows exactly which files were modified, rather than blindly truncating the middle of the alphabet. Truncation reports the original token count (not the post-truncation count) and always retains some content even when a single line exceeds the whole budget, so the AI never receives an empty diff.
   - Binary file detection prevents sending unreadable content to the AI, reducing wasted tokens.
   - Single API call per commit minimizes latency and cost.
   - Amend mode reuses the original commit message as context, reducing the need for extensive re-analysis.
 
 ## 3. Keyboard-First Interactive UI
 - **Motivation**: Git commit processes should be fast, transparent, and simple. Keyboard hotkeys allow power-users to speed through staging, reviewing, and committing without mouse interaction, while granular status indicators and flexible range syntax provide full control and visibility into index state without needing a separate git status call.
-- **Implementation**: Uses short character keys (`c`, `e`, `v`, `d`, `s`, `x`) to control the commit loop. File staging supports comma-separated numbers (`1, 2, 4`), numeric ranges (`1-3, 5`), and keywords (`all`, `*`) with granular staged/unstaged status badges (`[staged: modified]`, `[staged: untracked]`, `[staged: renamed]`, `[staged: deleted]`, `[modified]`, `[deleted]`, `[untracked]`) and rename origin tracking (`old -> new`). The unstage option (`u`) allows in-flight corrections using the same flexible range syntax without restarting. Commit mode selection (`n`/`a`/`f`) at startup provides quick access to amend workflows. Version bump options (`v`) feature semantic color-coding (patch: green, minor: cyan, major: magenta, none: yellow) and are only shown for new commits. Proposed commit review screen maintains granular status badges under `Files to commit:`. Validation warnings displayed in review screen.
+- **Implementation**: Uses short character keys (`c`, `e`, `v`, `d`, `s`, `x`) to control the commit loop. File staging supports comma-separated numbers (`1, 2, 4`), numeric ranges (`1-3, 5`), and keywords (`all`, `*`) with granular staged/unstaged status badges (`[staged: modified]`, `[staged: untracked]`, `[staged: renamed]`, `[staged: deleted]`, `[modified]`, `[deleted]`, `[untracked]`) and rename origin tracking (`old -> new`). The unstage option (`u`) allows in-flight corrections using the same flexible range syntax without restarting. Commit mode selection (`n`/`a`/`f`) at startup provides quick access to amend workflows. Version bump options (`v`) feature semantic color-coding (patch: green, minor: cyan, major: magenta, none: yellow) and are only shown for new commits. Proposed commit review screen maintains granular status badges under `Files to commit:`. Validation warnings displayed in review screen. Selecting an untracked file (or untracked directory) that pairs with an unstaged deletion by filename automatically stages the deletion as well, so a rename is never split into a duplicate add.
 
 ## 4. Automatic Version Alignment
 - **Motivation**: Semantic versioning is often neglected or updated out of sync with commits.
-- **Implementation**: Binds version tracking directly into the commit pipeline, enabling simultaneous source file version increments (`package.json`, `pyproject.toml`), `CHANGELOG.md` generation, and git tags right alongside the commit command. Parses detected version strings into integer tuples (supporting standard SemVer as well as multi-part version numbers like `v1.1.1.11`) and orders choices descending so option `1` always defaults to the highest version available. If a user selects a lower base version (or enters a custom lower version), the tool requires explicit confirmation before proceeding and allows returning to selection, preventing accidental backward version bumps. Additionally, it checks git commit messages for version strings, detects if the proposed version is already tagged locally to prevent collision, prompts the user for approval before creating or relocating git tags (with an optional `auto_tag: true` config setting to bypass prompts), and preserves the original formatting of the version string (preserving the `v` prefix or lack thereof).
+- **Implementation**: Binds version tracking directly into the commit pipeline, enabling simultaneous source file version increments (`package.json`, `pyproject.toml`), `CHANGELOG.md` generation, and git tags right alongside the commit command. Parses detected version strings into integer tuples (supporting standard SemVer as well as multi-part version numbers like `v1.1.1.11`) and orders choices descending so option `1` always defaults to the highest version available. If a user selects a lower base version (or enters a custom lower version), the tool requires explicit confirmation before proceeding and allows returning to selection, preventing accidental backward version bumps. Additionally, it checks git commit messages for version strings, detects if the proposed version is already tagged locally to prevent collision, prompts the user for approval before creating or relocating git tags (with an optional `auto_tag: true` config setting to bypass prompts), and preserves the original formatting of the version string (preserving the `v` prefix or lack thereof). A shared `is_version_regression()` guard also catches custom or context-detected versions that would move the version backwards, and existing multi-part prefixes are stripped correctly when the commit message is assembled. Remote tag checks match the exact `refs/tags/<name>` ref — so `v1.2.3` can never collide with `v1.2.34` — and run *before* the local tag is created; relocating tags on amend preserves annotated tags and their messages.
 
 ## 5. Automated Workflow Lifecycle
 - **Motivation**: Committing is only step one of modern development. A professional tool should support the full lifecycle up to deployment.
@@ -30,7 +30,7 @@ This document outlines the core architectural and design decisions behind the AI
 
 ## 6. Resilience & Crash Safety
 - **Motivation**: A commit tool that loses your AI-generated message on a crash forces a costly re-run of the API.
-- **Implementation**: Immediately after a successful Gemini response, the tool writes a session snapshot to `.git/COMMITGEN_STATE`. The saved state includes commit mode, summary, description, bump choice, staged files, and version. On the next launch, it offers to restore the session, skipping the API call entirely. State is always cleared on a clean exit. Non-interactive mode automatically clears saved sessions to prevent stale state in CI environments.
+- **Implementation**: Immediately after a successful Gemini response, the tool writes a session snapshot to the repository's Git directory. The saved state includes commit mode, summary, description, bump choice, staged files, and version. On the next launch, it offers to restore the session, skipping the API call entirely. State is always cleared on a clean exit. Non-interactive mode automatically clears saved sessions to prevent stale state in CI environments. The Git directory is resolved to an absolute path at startup (`init_git_dir()`), so state and templates keep working from any subdirectory. A resumed session re-runs the `.env` guard over its restored staged list. Version files and the changelog are snapshotted before mutation and restored if the commit fails, so a retry never accumulates version drift. A dedicated `prompt_restart()` helper and an `(KeyboardInterrupt, EOFError)` guard make a closed stdin exit cleanly instead of crash-looping.
 
 ## 7. User Configurability Without Complexity
 - **Motivation**: Different repos have different conventions. A hardcoded tool becomes an obstacle for teams.
@@ -38,7 +38,7 @@ This document outlines the core architectural and design decisions behind the AI
 
 ## 8. Headless & CI/CD Compatibility
 - **Motivation**: The tool should be usable as a step in automated pipelines, not just interactively.
-- **Implementation**: `--non-interactive` mode (and auto-detection of `CI`, `GITHUB_ACTIONS`, `GITLAB_CI`, `JENKINS_URL`, `TRAVIS` env vars) skips all prompts, auto-stages everything, and uses config defaults throughout. `--dry-run` mode allows full pipeline testing without writing any git objects. Non-interactive mode automatically clears saved sessions to prevent stale state.
+- **Implementation**: `--non-interactive` mode (and auto-detection of `CI`, `GITHUB_ACTIONS`, `GITLAB_CI`, `JENKINS_URL`, `TRAVIS` env vars) skips all prompts, auto-stages everything, and uses config defaults throughout. `--dry-run` mode allows full pipeline testing without writing any git objects. Non-interactive mode automatically clears saved sessions to prevent stale state. Because safety-critical prompts have no human to answer them, it applies conservative defaults: it auto-selects the commit action, never force-pushes amended commits, creates tags only when `auto_tag: true`, pushes only when `auto_push: true`, honors `auto_pull` silently, skips PR creation and CI monitoring, and aborts the commit if pre-commit hooks fail. It also never blocks on `input()`, so a closed stdin cannot hang a pipeline.
 
 ## 9. Commit Message Validation & Quality Assurance
 - **Motivation**: AI-generated messages should still meet repository standards and conventional commit specifications.
@@ -73,18 +73,21 @@ This document outlines the core architectural and design decisions behind the AI
   - Automatically detects and unstages `.env` files with a security warning
   - Recursive re-scan after unstaging to ensure clean file lists
   - AI prompt exclusion list (`AI_PROMPT_EXCLUDED_EXTENSIONS`) prevents binary/media files from being sent to Gemini, saving tokens and avoiding parsing issues while still allowing normal git commits
+  - Resumed sessions re-apply the `.env` guard (`drop_env_files()`) over their restored staged list, so a file that was staged before a crash is filtered again before commit
+  - `redact_secrets()` scrubs high-confidence secret patterns (AWS access keys, GitHub/Gemini tokens, bearer tokens, credentials embedded in URLs) from the AI prompt before it is sent, while leaving the committed diff untouched
 
 ## 13. Post-Commit Workflow Automation
 - **Motivation**: Committing is only step one of modern development. A professional tool should support the full lifecycle up to deployment.
 - **Implementation**: 
   - Automatic version updates in project files (package.json, pyproject.toml)
-  - CHANGELOG.md generation with version, date, and changes
+  - CHANGELOG.md generation with version, date, and changes; re-committing or fresh-amending the same version replaces that version's entry instead of duplicating it
   - Git tag creation preserving original version formatting
   - Pull Request creation via GitHub CLI (`gh pr create`)
   - CI pipeline monitoring with live streaming (`gh run watch`)
   - Automatic GitHub Repository Creation (public or private) when no remote is configured
-  - Pre-push pull safety check (`git pull --rebase`) with user permission confirmation (respects `auto_pull` configuration), featuring interactive loop recovery that switches default to `[n]` if git pull fails due to unstaged changes (at startup or pre-push).
-- Force-push detection and warnings for amended commits
+  - Pre-push pull safety check (`git pull --rebase`) with user permission confirmation (respects `auto_pull` configuration), featuring interactive loop recovery that switches default to `[n]` if git pull fails due to unstaged changes (at startup or pre-push)
+  - Push failures offer an automatic retry prompt (interactive) or a clean skip (non-interactive); choosing not to push prints an explicit "skipped push" hint instead of silently exiting
+  - Force-push detection and warnings for amended commits (refused in non-interactive mode)
   - Version prefix added to commit messages for all modes (e.g., `v1.2.3 - feat: add feature` or `1.2.3 - feat: add feature`)
 
 ## 14. Terminal Resilience & Interface Stability
