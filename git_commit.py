@@ -1029,43 +1029,61 @@ def prompt_amend_or_new():
     else:
         return 'new'
 
+def build_file_entries(staged, unstaged, untracked, details):
+    """Build the ordered (path, status, display_name) rows used by both the
+    staging picker and the read-only viewer, so files are presented identically.
+    """
+    entries = []
+    for f in staged:
+        st_info = details.get(f, {}).get("staged", "staged")
+        orig = details.get(f, {}).get("orig_path")
+        display_name = f"{orig} -> {f}" if orig else f
+        entries.append((f, st_info, display_name))
+    for f in unstaged:
+        entries.append((f, details.get(f, {}).get("unstaged", "modified"), f))
+    for f in untracked:
+        entries.append((f, "untracked", f))
+    return entries
+
+def status_color(status):
+    """Colour used for a file status badge (shared by picker and viewer)."""
+    if status.startswith("staged"):
+        return c(COLOR_GREEN)
+    if status == "modified":
+        return c(COLOR_YELLOW)
+    if status == "deleted":
+        return c(COLOR_MAGENTA)
+    return c(COLOR_RED)
+
+def print_status_legend():
+    """Print the staged / modified / untracked colour legend line."""
+    print(f"  ({c(COLOR_GREEN)}staged: green{c(COLOR_RESET)}, {c(COLOR_YELLOW)}modified: yellow{c(COLOR_RESET)}, {c(COLOR_RED)}untracked: red{c(COLOR_RESET)})")
+
+def print_file_rows(entries, start_index=1):
+    """Print numbered '[status] name' rows exactly as the staging picker does."""
+    for idx, (f, status, display_name) in enumerate(entries, start_index):
+        color = status_color(status)
+        print(f"  {c(COLOR_BOLD)}{idx}{c(COLOR_RESET)}) [{color}{status}{c(COLOR_RESET)}] {display_name}")
+
+def print_file_picker(title, entries):
+    """Print the shared file-list block: title, legend, divider, rows, divider."""
+    print()
+    print_info(title)
+    print_status_legend()
+    print(f"  {'-' * 45}")
+    print_file_rows(entries)
+    print(f"  {'-' * 45}")
+
 def prompt_stage_files(staged, unstaged, untracked):
     """Always show full file picker so user can review/add files before committing."""
     while True:
         staged, unstaged, untracked, details = get_git_files(include_details=True)
-        all_available = []
-        for f in staged:
-            st_info = details.get(f, {}).get("staged", "staged")
-            orig = details.get(f, {}).get("orig_path")
-            display_name = f"{orig} -> {f}" if orig else f
-            all_available.append((f, st_info, display_name))
-
-        for f in unstaged:
-            unst_info = details.get(f, {}).get("unstaged", "modified")
-            all_available.append((f, unst_info, f))
-
-        for f in untracked:
-            all_available.append((f, "untracked", f))
+        all_available = build_file_entries(staged, unstaged, untracked, details)
 
         if not all_available:
             return False
 
-        print()
-        print_info("Select files to stage/commit:")
-        print(f"  ({c(COLOR_GREEN)}staged: green{c(COLOR_RESET)}, {c(COLOR_YELLOW)}modified: yellow{c(COLOR_RESET)}, {c(COLOR_RED)}untracked: red{c(COLOR_RESET)})")
-        print(f"  {'-' * 45}")
-        for idx, (f, status, display_name) in enumerate(all_available, 1):
-            if status.startswith("staged"):
-                color = c(COLOR_GREEN)
-            elif status == "modified":
-                color = c(COLOR_YELLOW)
-            elif status == "deleted":
-                color = c(COLOR_MAGENTA)
-            else:
-                color = c(COLOR_RED)
-            print(f"  {c(COLOR_BOLD)}{idx}{c(COLOR_RESET)}) [{color}{status}{c(COLOR_RESET)}] {display_name}")
-        
-        print(f"  {'-' * 45}")
+        print_file_picker("Select files to stage/commit:", all_available)
         print(f"  {c(COLOR_GREEN)}{c(COLOR_BOLD)}a{c(COLOR_RESET)}) Stage all files")
         print(f"  {c(COLOR_YELLOW)}{c(COLOR_BOLD)}u{c(COLOR_RESET)}) Unstage specific files")
         print(f"  {c(COLOR_MAGENTA)}{c(COLOR_BOLD)}r{c(COLOR_RESET)}) Refresh status")
@@ -1515,39 +1533,72 @@ def print_stat_block(stats_text):
         else:
             print(f"  {line}")
 
+def show_file_change_stats(path):
+    """Show a single file's +/- change counts (staged and/or unstaged), never contents."""
+    staged_stat = run_git_cmd(["diff", "--cached", "--stat", "--", path])
+    unstaged_stat = run_git_cmd(["diff", "--stat", "--", path])
+    print(f"\n{c(COLOR_MAGENTA)}{c(COLOR_BOLD)}--- {path} ---{c(COLOR_RESET)}")
+    shown = False
+    if staged_stat:
+        print(f"  {c(COLOR_GREEN)}Staged:{c(COLOR_RESET)}")
+        print_stat_block(staged_stat)
+        shown = True
+    if unstaged_stat:
+        print(f"  {c(COLOR_YELLOW)}Unstaged:{c(COLOR_RESET)}")
+        print_stat_block(unstaged_stat)
+        shown = True
+    if not shown:
+        if os.path.isdir(path):
+            listed = run_git_cmd(["ls-files", "--others", "--exclude-standard", "-z", "--", path], strip=False) or ""
+            count = len([p for p in listed.split("\0") if p])
+            print(f"  {c(COLOR_RED)}Untracked{c(COLOR_RESET)} directory with {count} file{'s' if count != 1 else ''} (no diff available).")
+        elif os.path.exists(path) and not is_binary_file(path):
+            try:
+                with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                    lines = sum(1 for _ in fh)
+                print(f"  {c(COLOR_RED)}Untracked{c(COLOR_RESET)} file, {lines} line{'s' if lines != 1 else ''} (no diff available).")
+            except Exception:
+                print(f"  {c(COLOR_RED)}Untracked{c(COLOR_RESET)} file (no diff available).")
+        else:
+            print(f"  {c(COLOR_RED)}Untracked / binary{c(COLOR_RESET)} (no diff available).")
+    input("\nPress Enter to return...")
+
 def show_changed_files_viewer():
-    """List staged, unstaged and untracked files (no file contents)."""
-    staged, unstaged, untracked, details = get_git_files(include_details=True)
-    total = len(staged) + len(unstaged) + len(untracked)
-    if total == 0:
-        print_success("Working tree is clean - no changed files.")
-        return
+    """Picker-style, read-only listing of changed files with optional per-file +/- stats."""
+    while True:
+        staged, unstaged, untracked, details = get_git_files(include_details=True)
+        entries = build_file_entries(staged, unstaged, untracked, details)
+        if not entries:
+            print_success("Working tree is clean - no changed files.")
+            return
 
-    print_info(f"Changed files: {total}")
+        print_file_picker(f"Changed files ({len(entries)}):", entries)
 
-    if staged:
-        print(f"\n  {c(COLOR_GREEN)}{c(COLOR_BOLD)}Staged ({len(staged)}):{c(COLOR_RESET)}")
-        for f in staged:
-            info = details.get(f, {})
-            orig = info.get("orig_path")
-            label = f"{orig} -> {f}" if orig else f
-            print(f"    {c(COLOR_GREEN)}+{c(COLOR_RESET)} {label}  {c(COLOR_YELLOW)}({info.get('staged', 'staged')}){c(COLOR_RESET)}")
+        staged_stats = run_git_cmd(["diff", "--cached", "--stat"])
+        if staged_stats:
+            print(f"  {c(COLOR_BOLD)}Staged change summary (+/-):{c(COLOR_RESET)}")
+            print_stat_block(staged_stats)
+            print()
 
-    if unstaged:
-        print(f"\n  {c(COLOR_YELLOW)}{c(COLOR_BOLD)}Unstaged / modified ({len(unstaged)}):{c(COLOR_RESET)}")
-        for f in unstaged:
-            info = details.get(f, {})
-            print(f"    {c(COLOR_YELLOW)}~{c(COLOR_RESET)} {f}  {c(COLOR_YELLOW)}({info.get('unstaged', 'modified')}){c(COLOR_RESET)}")
+        print(f"  {c(COLOR_CYAN)}{c(COLOR_BOLD)}r{c(COLOR_RESET)}) Refresh")
+        print(f"  {c(COLOR_BOLD)}b{c(COLOR_RESET)}) Back")
 
-    if untracked:
-        print(f"\n  {c(COLOR_RED)}{c(COLOR_BOLD)}Untracked ({len(untracked)}):{c(COLOR_RESET)}")
-        for f in untracked:
-            print(f"    {c(COLOR_RED)}?{c(COLOR_RESET)} {f}")
-
-    staged_stats = run_git_cmd(["diff", "--cached", "--stat"])
-    if staged_stats:
-        print(f"\n  {c(COLOR_BOLD)}Staged change summary (+/-):{c(COLOR_RESET)}")
-        print_stat_block(staged_stats)
+        choice = input("\nSelect file number(s) to view +/- stats, or [r/b] [b]: ").strip().lower()
+        if choice in ('', 'b'):
+            return
+        if choice == 'r':
+            print_info("Refreshed file status.")
+            continue
+        try:
+            indices = parse_index_selection(choice, len(entries))
+        except ValueError:
+            print_error("Invalid selection.")
+            continue
+        if not indices:
+            print_warn("No files selected.")
+            continue
+        for i in indices:
+            show_file_change_stats(entries[i][0])
 
 def show_commit_detail(commit_hash):
     """Show one commit's metadata and per-file +/- stats (not the full diff)."""

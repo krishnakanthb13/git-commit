@@ -156,7 +156,7 @@ python git_commit.py --3.1        # force gemini-3.1-flash-lite
 - `3`: Custom model entry
 
 **Viewer** (startup mode menu option `2`, or `w` from the commit review screen):
-- `1`: Changed files — lists staged, unstaged/modified and untracked files (grouped, with a staged `+/-` summary). File contents are never shown.
+- `1`: Changed files — read-only version of the staging picker's file list (same legend, divider and `[status]` badges for staged / unstaged / untracked). Enter a file number to view its per-file `+/-` stats (`r` to refresh, `b` to go back). File contents are never shown.
 - `2`: Commit history — pages through all commits; enter a commit number to see its metadata and the files it changed with `+/-` change bars (no line-by-line diff).
 - `3`: Back to start.
 

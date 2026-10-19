@@ -295,7 +295,7 @@ def test_prompt_select_model_reverted_to_three_options(monkeypatch):
     assert gc.prompt_select_model() == "gemini-3.1-flash-lite"
 
 
-def test_show_changed_files_viewer_groups_files(tmp_path, monkeypatch, capsys):
+def test_show_changed_files_viewer_picker_style(tmp_path, monkeypatch, capsys):
     _init_repo(tmp_path)
     monkeypatch.chdir(tmp_path)
     (tmp_path / "tracked.txt").write_text("one\n", encoding="utf-8")
@@ -309,13 +309,36 @@ def test_show_changed_files_viewer_groups_files(tmp_path, monkeypatch, capsys):
     (tmp_path / "modified.txt").write_text("b\n", encoding="utf-8")
     (tmp_path / "brand_new.txt").write_text("new\n", encoding="utf-8")
 
+    _feed_inputs(monkeypatch, [""])  # Enter -> back
     gc.show_changed_files_viewer()
     out = capsys.readouterr().out
 
+    # Same picker-style header, legend and badges as the staging screen.
     assert "Changed files" in out
-    assert "Staged" in out and "tracked.txt" in out
-    assert "Unstaged" in out and "modified.txt" in out
-    assert "Untracked" in out and "brand_new.txt" in out
+    assert "staged: green" in out and "untracked: red" in out
+    assert "[staged: modified] tracked.txt" in out
+    assert "[modified] modified.txt" in out
+    assert "[untracked] brand_new.txt" in out
+
+
+def test_show_changed_files_viewer_opens_file_stats(tmp_path, monkeypatch, capsys):
+    _init_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "a.txt").write_text("one\n", encoding="utf-8")
+    _git("add", "a.txt")
+    _git("commit", "-qm", "initial")
+    (tmp_path / "a.txt").write_text("two\nthree\n", encoding="utf-8")
+
+    # 1 -> open file 1 stats, "" -> return, "" -> back to viewer menu.
+    _feed_inputs(monkeypatch, ["1", "", ""])
+    gc.show_changed_files_viewer()
+    out = capsys.readouterr().out
+
+    assert "--- a.txt ---" in out
+    assert "Unstaged:" in out
+    assert "insertion" in out
+    # Change counts only — never the file contents.
+    assert "three" not in out
 
 
 def test_browse_commit_history_opens_commit_details(tmp_path, monkeypatch, capsys):
