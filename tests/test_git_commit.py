@@ -44,10 +44,48 @@ def test_semver_key_and_regression_detection():
     assert gc.is_version_regression("v1.1.1.9", "v1.1.1.11")
 
 
+def test_prerelease_versions_use_core_for_compare_and_bump():
+    # Pre-release/build metadata is ignored for ordering...
+    assert gc.semver_key("1.2.3-rc1") == (1, 2, 3)
+    assert gc.semver_key("1.2.3+build.7") == (1, 2, 3)
+    assert not gc.is_version_regression("1.2.3-rc1", "1.2.3")
+    # ...and bumping a prerelease works instead of returning it unchanged.
+    assert gc.increment_version("1.2.3-rc1", "patch") == "1.2.4"
+    assert gc.increment_version("v1.2.3-rc1+build", "major") == "v2.0.0"
+
+
+def test_validate_commit_message_keeps_body_dashes():
+    # A ' - ' in the body is not a version prefix.
+    assert gc.validate_commit_message("fix: handle a - b") == []
+    # A real version prefix is still stripped before the format check.
+    assert gc.validate_commit_message("v1.2.3 - fix: handle it") == []
+    # Non-conventional messages are still flagged.
+    assert any("conventional" in issue for issue in gc.validate_commit_message("random text - here"))
+
+
+def test_co_author_trailer_is_address_like():
+    trailer = gc.format_co_author_trailer("gemini-3.5-flash-lite")
+    assert trailer.endswith("<gemini-3.5-flash-lite@users.noreply.github.com>")
+
+
 # ------------------------------------------------------------------- .env / secrets
 def test_drop_env_files_filters_secrets_and_keeps_templates():
+    # '.envrc' (direnv config) is often intentionally tracked and is no
+    # longer filtered; only real secret .env variants are dropped.
     files = [".env", "src/a.py", ".env.local", ".env.template", ".envrc"]
-    assert gc.drop_env_files(files) == ["src/a.py", ".env.template"]
+    assert gc.drop_env_files(files) == ["src/a.py", ".env.template", ".envrc"]
+
+
+def test_staged_envrc_is_kept_but_flagged(tmp_path, monkeypatch, capsys):
+    _init_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".envrc").write_text("layout python\n", encoding="utf-8")
+    _git("add", ".envrc")
+
+    staged, unstaged, untracked = gc.get_git_files()
+    assert ".envrc" in staged  # user-committable config, not silently stripped
+    assert ".envrc" in _git("diff", "--cached", "--name-only").stdout  # not auto-unstaged
+    assert "no secrets" in capsys.readouterr().out
 
 
 def test_redact_secrets_only_touches_matches():
@@ -191,6 +229,69 @@ def test_prompt_restart_survives_closed_stdin(monkeypatch):
     assert gc.prompt_restart() is False
 
 
+def test_staged_env_without_head_is_unstaged_without_hanging(tmp_path, monkeypatch):
+    _init_repo(tmp_path)  # deliberately no commit: the repo has no HEAD yet
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("SECRET=1\n", encoding="utf-8")
+    _git("add", ".env")
+
+    # This used to loop forever: unstaging failed (no HEAD) and the filter
+    # re-ran itself, spamming warnings. It must return promptly instead.
+    staged, unstaged, untracked = gc.get_git_files()
+    assert ".env" not in staged + unstaged + untracked
+    # The file is genuinely unstaged in git, not merely hidden from the lists.
+    assert ".env" not in _git("diff", "--cached", "--name-only").stdout
+
+
+def test_restore_files_snapshot_unstages_on_headless_repo(tmp_path, monkeypatch):
+    _init_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "CHANGELOG.md").write_text("v1\n", encoding="utf-8")
+    snapshot = gc.snapshot_files(["CHANGELOG.md"])
+    # The tool rewrites and stages the file before a commit that never lands.
+    (tmp_path / "CHANGELOG.md").write_text("v1\ntool edit\n", encoding="utf-8")
+    _git("add", "CHANGELOG.md")
+
+    # 'git restore --staged' failed here ("could not resolve HEAD"); 'reset'
+    # works on a repo without commits.
+    gc.restore_files_snapshot(snapshot)
+
+    assert (tmp_path / "CHANGELOG.md").read_text(encoding="utf-8") == "v1\n"
+    assert "CHANGELOG.md" not in _git("diff", "--cached", "--name-only").stdout
+
+
+def test_create_annotated_tag_duplicate_does_not_raise(tmp_path, monkeypatch, capsys):
+    _init_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "f.txt").write_text("a", encoding="utf-8")
+    _git("add", "f.txt")
+    _git("commit", "-qm", "c1")
+    _git("tag", "-a", "v1.0.0", "-m", "existing")
+
+    # A pre-existing tag is reported but must not raise, so the caller can
+    # never mistake it for a failed commit and roll back.
+    assert gc.create_annotated_tag("v1.0.0") is False
+    out = capsys.readouterr().out
+    assert "manually" in out
+    # The commit itself is untouched.
+    assert _git("log", "-1", "--format=%s").stdout.strip() == "c1"
+    # A fresh tag name still succeeds.
+    assert gc.create_annotated_tag("v1.0.1") is True
+    assert _git("tag", "-l", "v1.0.1").stdout.strip() == "v1.0.1"
+
+
+def test_update_version_in_files_preserves_package_json_formatting(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    original = '{\n    "name": "demo",\n    "version": "1.2.3",\n    "private": true\n}\n'
+    (tmp_path / "package.json").write_text(original, encoding="utf-8")
+
+    gc.update_version_in_files("v1.2.4")
+
+    updated = (tmp_path / "package.json").read_text(encoding="utf-8")
+    # Only the version value changes; indentation/order/trailing newline stay.
+    assert updated == original.replace('"1.2.3"', '"1.2.4"')
+
+
 # --------------------------------------------------------- git-dir / tags / renames
 def test_git_dir_and_session_state_from_subdirectory(tmp_path, monkeypatch):
     _init_repo(tmp_path)
@@ -251,6 +352,29 @@ def test_prompt_stage_files_pairs_unstaged_rename(tmp_path, monkeypatch):
     cached = _git("diff", "--cached", "--name-status").stdout
     assert "src/util.py" in cached
     assert any(line.startswith("D") and "lib/util.py" in line for line in cached.splitlines())
+
+
+def test_build_file_entries_merges_staged_and_unstaged_edit():
+    details = {
+        "f.txt": {"staged": "staged: modified", "unstaged": "modified"},
+        "g.txt": {"unstaged": "modified"},
+    }
+    entries = gc.build_file_entries(["f.txt"], ["f.txt", "g.txt"], [], details)
+
+    # f.txt is staged and edited again; it appears once with a merged badge.
+    assert [e[0] for e in entries] == ["f.txt", "g.txt"]
+    assert entries[0][1] == "staged: modified + modified"
+    # Merged rows still count as staged for colouring purposes.
+    assert entries[0][1].startswith("staged")
+
+
+def test_parse_index_selection_rejects_out_of_range_and_clips_ranges():
+    with pytest.raises(ValueError):
+        gc.parse_index_selection("5", 3)
+    with pytest.raises(ValueError):
+        gc.parse_index_selection("4-9", 3)  # whole range outside the list
+    assert gc.parse_index_selection("1-99", 3) == [0, 1, 2]  # clipped
+    assert gc.parse_index_selection("2,2,1", 3) == [1, 0]  # de-duplicated
 
 
 def test_check_remote_tag_requires_exact_match(tmp_path, monkeypatch):
@@ -383,3 +507,14 @@ def test_browse_commit_history_opens_commit_details(tmp_path, monkeypatch, capsy
     assert "sample.txt" in out
     assert "file changed" in out
     assert "hello" not in out
+
+
+def test_browse_commit_history_guards_page_size(tmp_path, monkeypatch):
+    _init_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "a.txt").write_text("x\n", encoding="utf-8")
+    _git("add", "a.txt")
+    _git("commit", "-qm", "c1")
+
+    _feed_inputs(monkeypatch, ["b"])
+    gc.browse_commit_history(per_page=0)  # used to divide by zero

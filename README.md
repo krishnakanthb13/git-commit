@@ -43,9 +43,9 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 23. 📝 **Loads commit templates** from `.git/COMMIT_TEMPLATE` or `.github/PULL_REQUEST_TEMPLATE.md`
 24. 📦 **GitHub Repository Creation**: Auto-prompts to create a public/private repository on GitHub and push code/tags when no git remote is configured.
 25. 🔁 **Continuous Sessions**: Prompts to optionally restart the tool (`Press Enter to exit, or 'r' to restart`) when the working tree is clean, staging is aborted, commits are cancelled, or upon completion/errors, allowing seamless multi-commit workflows without dropping back to the shell.
-26. 🔒 **Security: .env Protection**: Automatically detects and unstages `.env`, `.env.*`, and `.envrc` files to prevent accidental credential leaks, while allowing safe template and example files (`.env.template`, `.env.example`, `.env.sample`, `.env.dist`) to be committed normally.
+26. 🔒 **Security: .env Protection**: Automatically detects and unstages `.env` and `.env.*` files to prevent accidental credential leaks, while allowing safe template and example files (`.env.template`, `.env.example`, `.env.sample`, `.env.dist`) to be committed normally. `.envrc` (direnv config) is never auto-unstaged — it is often tracked project config — but a warning reminds you to check it for secrets before committing.
 27. 🤖 **AI Prompt Optimization**: Excludes images, videos, audio, PDFs, and binary files from the Gemini prompt to save tokens and improve analysis quality. Files are still committed normally — only AI analysis is affected.
-28. 👥 **Co-Authored-By Attribution**: Optional git commit trailer (`Co-authored-by: Custom Tool By BKK ({model}) <{model}>`) to credit AI generation with interactive prompting (defaults to `n`), dynamic review menu toggle (`t`), CLI flags (`--co-author`/`--no-co-author`), and configuration support.
+28. 👥 **Co-Authored-By Attribution**: Optional git commit trailer (`Co-authored-by: Custom Tool By BKK ({model}) <{model}@users.noreply.github.com>`) to credit AI generation with interactive prompting (defaults to `n`), dynamic review menu toggle (`t`), CLI flags (`--co-author`/`--no-co-author`), and configuration support.
 29. 📁 **Startup Directory Context**: Immediately displays the active project folder name and absolute directory path at launch before model selection.
 30. 🛡️ **Input Buffer Protection**: Automatically purges unconsumed console input buffers before rendering prompts, preventing accidental double-Enter keypresses or premature keystrokes from auto-advancing subsequent menus.
 31. 🩹 **Rollback on Failed Commit**: If a commit fails after version files or the changelog were rewritten, the original file contents are restored and unstaged, so retrying never leaves version drift behind.
@@ -225,7 +225,8 @@ Create a `.commitgenrc` JSON file in your repo (or `~/.commitgenrc` globally) to
   "auto_pull": true,
   "model": "gemini-3.5-flash-lite",
   "auto_tag": false,
-  "co_author": false
+  "co_author": false,
+  "show_tree": true
 }
 ```
 
@@ -243,6 +244,7 @@ Create a `.commitgenrc` JSON file in your repo (or `~/.commitgenrc` globally) to
 - `model`: Gemini model to use (default: `gemini-3.5-flash-lite`)
 - `auto_tag`: Automatically create/move git tags without confirmation prompt (default: `false` for safety)
 - `co_author`: Include Co-Authored-By attribution trailer by default (default: `false`)
+- `show_tree`: Show the repository structure tree at startup (default: `true`; set to `false` on large repos)
 
 ## Windows Right-Click Context Menu Integration
 

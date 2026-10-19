@@ -41,7 +41,10 @@ def _find_icon() -> str:
     return "cmd.exe"  # safe fallback
 
 def get_command(script_path: str) -> str:
-    return f'cmd.exe /k "cd /d "%V%" && python "{script_path}""'
+    # Registry command line: %V is the folder path (double-click target or
+    # background). Quote each path individually; the previous nested-quote
+    # form was malformed and broke on paths containing spaces.
+    return f'cmd.exe /k cd /d "%V" && python "{script_path}"'
 
 def install(script_path: str):
     try:
@@ -100,6 +103,15 @@ def main():
     mode = "--install"
     if len(sys.argv) > 1:
         mode = sys.argv[1].lower()
+
+    if mode in ("--help", "-h", "/?"):
+        print(__doc__)
+        sys.exit(0)
+
+    if mode not in ("--install", "--uninstall"):
+        print(f"{COLOR_RED}[ERROR] Unknown option: {mode}{COLOR_RESET}")
+        print("Usage: python register.py [--install | --uninstall | --help]")
+        sys.exit(2)
 
     if mode == "--uninstall":
         print(f"{COLOR_CYAN}Removing context menu entry...{COLOR_RESET}")

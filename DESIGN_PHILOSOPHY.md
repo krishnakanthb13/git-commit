@@ -69,7 +69,7 @@ This document outlines the core architectural and design decisions behind the AI
 ## 12. Security-First .env Handling
 - **Motivation**: Accidentally committing `.env` files containing API keys, database credentials, or other secrets is one of the most common security mistakes in development. A commit tool should actively prevent this.
 - **Implementation**:
-  - Strict `.env` detection via `is_env_file()` — matches secret `.env`, `.env.*`, and `.envrc` files while excluding safe template/example files (`.env.template`, `.env.example`, `.env.sample`, `.env.dist`) so templates can be committed freely.
+  - Pragmatic `.env` detection via `is_env_file()` — matches secret `.env` and `.env.*` files while excluding safe template/example files (`.env.template`, `.env.example`, `.env.sample`, `.env.dist`) so templates can be committed freely. `.envrc` (direnv config) is treated as committable project config and only flagged with a warning — silently stripping a tracked `.envrc` would make normal direnv setups uncommittable.
   - Automatically detects and unstages `.env` files with a security warning
   - Recursive re-scan after unstaging to ensure clean file lists
   - AI prompt exclusion list (`AI_PROMPT_EXCLUDED_EXTENSIONS`) prevents binary/media files from being sent to Gemini, saving tokens and avoiding parsing issues while still allowing normal git commits
@@ -105,5 +105,5 @@ This document outlines the core architectural and design decisions behind the AI
 - **Motivation**: When AI tools assist with git history, developers and teams require transparency, control, and immediate context. Developers should instantly see which repository and path they are executing against upon startup, and have an effortless, opt-in mechanism to credit AI generation without imposing unwanted trailers by default.
 - **Implementation**:
   - **Immediate Startup Context**: `show_startup_banner()` displays the project folder name and absolute directory path before model selection, removing ambiguity when launched from context menus or deeply nested directories.
-  - **Opt-in Git Trailers**: Generates standardized Git trailer format (`Co-authored-by: Custom Tool By BKK ({model}) <{model}>`). Defaults to `n` on interactive prompt to respect team privacy preferences and clean git history by default.
+  - **Opt-in Git Trailers**: Generates standardized Git trailer format (`Co-authored-by: Custom Tool By BKK ({model}) <{model}@users.noreply.github.com>`). Defaults to `n` on interactive prompt to respect team privacy preferences and clean git history by default.
   - **Flexible In-Flight Control**: Allows users to toggle attribution dynamically on the review screen (`t`), configure project-wide defaults in `.commitgenrc` (`co_author: false`), override via environment variables (`CO_AUTHOR`), or pass CLI flags (`--co-author` / `--no-co-author`).
