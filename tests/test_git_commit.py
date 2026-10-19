@@ -295,26 +295,28 @@ def test_prompt_select_model_reverted_to_three_options(monkeypatch):
     assert gc.prompt_select_model() == "gemini-3.1-flash-lite"
 
 
-def test_print_review_options_grouped_for_new_commit(capsys):
+def test_print_review_options_compact_gutter_for_new_commit(capsys):
     gc.print_review_options("gemini-3.5-flash-lite", False, "new")
     out = capsys.readouterr().out
 
-    for header in ("Commit", "AI & Attribution", "Version", "Inspect"):
+    for header in ("Commit", "AI", "Version", "Inspect", "Cancel"):
         assert header in out
     for key in ("c)", "e)", "g)", "m)", "t)", "v)", "h)", "d)", "w)", "s)", "x)"):
         assert key in out
+    # No blank lines between groups — keeps the menu short in a narrow window.
+    assert "\n\n" not in out.lstrip("\n")
 
 
 def test_print_review_options_hides_version_group_when_amending(capsys):
     gc.print_review_options("gemini-3.5-flash-lite", True, "amend")
     out = capsys.readouterr().out
 
-    assert "AI & Attribution" in out and "Inspect" in out
+    assert "Inspect" in out
     assert "Version" not in out
     # AI regeneration is only offered for new commits.
     assert "g)" not in out
     # Attribution reflects the current toggle state.
-    assert "currently: yes" in out
+    assert "Co-Authored-By: yes" in out
 
 
 def test_show_changed_files_viewer_picker_style(tmp_path, monkeypatch, capsys):

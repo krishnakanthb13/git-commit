@@ -1030,33 +1030,52 @@ def prompt_amend_or_new():
         return 'new'
 
 def print_review_options(model, include_co_author, commit_mode):
-    """Print the review-screen options grouped under labelled section headers.
+    """Print the review-screen options as a compact left-gutter table.
 
-    Version-related options only apply to new commits, and AI regeneration only
-    makes sense for a freshly generated (non-amend) message.
+    Group names sit in a left gutter and every option occupies exactly one line
+    (never wrapped or split), with no blank lines between groups, so the menu
+    stays short and readable in a small console window.
     """
+    ca_state = 'yes' if include_co_author else 'no'
+    groups = [
+        ("Commit", [
+            ('c', COLOR_GREEN, "Commit"),
+            ('e', COLOR_YELLOW, "Edit message"),
+        ]),
+    ]
+    ai_items = []
+    if commit_mode == 'new':
+        ai_items.append(('g', COLOR_CYAN, "Regenerate message (AI)"))
+    ai_items.append(('m', COLOR_MAGENTA, f"Switch model: {model}"))
+    ai_items.append(('t', COLOR_BLUE, f"Co-Authored-By: {ca_state}"))
+    groups.append(("AI", ai_items))
+    if commit_mode == 'new':
+        groups.append(("Version", [
+            ('v', COLOR_YELLOW, "Change version bump"),
+            ('h', COLOR_CYAN, "Version history"),
+        ]))
+    groups.append(("Inspect", [
+        ('d', COLOR_CYAN, "View diff"),
+        ('w', None, "Browse changes & commit history"),
+        ('s', COLOR_MAGENTA, "Spell check"),
+    ]))
+    groups.append(("Cancel", [
+        ('x', COLOR_RED, "Cancel"),
+    ]))
+
+    gutter = max(len(name) for name, _ in groups) + 2
+    indent = " " * (gutter + 2)
+
+    def render(char, keycolor, text):
+        key = f"{c(keycolor)}{c(COLOR_BOLD)}{char}{c(COLOR_RESET)}" if keycolor else f"{c(COLOR_BOLD)}{char}{c(COLOR_RESET)}"
+        return f"{key}) {text}"
+
     print(f"\nOptions:")
-    print(f"  {c(COLOR_SKY_BLUE)}{c(COLOR_BOLD)}Commit{c(COLOR_RESET)}")
-    print(f"    {c(COLOR_GREEN)}{c(COLOR_BOLD)}c{c(COLOR_RESET)}) Commit")
-    print(f"    {c(COLOR_YELLOW)}{c(COLOR_BOLD)}e{c(COLOR_RESET)}) Edit message")
-
-    print(f"\n  {c(COLOR_SKY_BLUE)}{c(COLOR_BOLD)}AI & Attribution{c(COLOR_RESET)}")
-    if commit_mode == 'new':
-        print(f"    {c(COLOR_CYAN)}{c(COLOR_BOLD)}g{c(COLOR_RESET)}) Regenerate message (AI)")
-    print(f"    {c(COLOR_MAGENTA)}{c(COLOR_BOLD)}m{c(COLOR_RESET)}) Switch Gemini model (current: {model})")
-    print(f"    {c(COLOR_BLUE)}{c(COLOR_BOLD)}t{c(COLOR_RESET)}) Toggle Co-Authored-By attribution (currently: {'yes' if include_co_author else 'no'})")
-
-    if commit_mode == 'new':
-        print(f"\n  {c(COLOR_SKY_BLUE)}{c(COLOR_BOLD)}Version{c(COLOR_RESET)}")
-        print(f"    {c(COLOR_YELLOW)}{c(COLOR_BOLD)}v{c(COLOR_RESET)}) Change version bump")
-        print(f"    {c(COLOR_CYAN)}{c(COLOR_BOLD)}h{c(COLOR_RESET)}) Version history")
-
-    print(f"\n  {c(COLOR_SKY_BLUE)}{c(COLOR_BOLD)}Inspect{c(COLOR_RESET)}")
-    print(f"    {c(COLOR_CYAN)}{c(COLOR_BOLD)}d{c(COLOR_RESET)}) View diff")
-    print(f"    {c(COLOR_BOLD)}w{c(COLOR_RESET)}) Browse changes & commit history")
-    print(f"    {c(COLOR_MAGENTA)}{c(COLOR_BOLD)}s{c(COLOR_RESET)}) Spell check")
-
-    print(f"\n  {c(COLOR_RED)}{c(COLOR_BOLD)}x{c(COLOR_RESET)}) Cancel")
+    for name, items in groups:
+        label = f"  {c(COLOR_SKY_BLUE)}{c(COLOR_BOLD)}{name}{c(COLOR_RESET)}" + " " * (gutter - len(name))
+        print(f"{label}{render(*items[0])}")
+        for item in items[1:]:
+            print(f"{indent}{render(*item)}")
 
 def build_file_entries(staged, unstaged, untracked, details):
     """Build the ordered (path, status, display_name) rows used by both the
