@@ -1487,13 +1487,191 @@ def load_config():
                 print_warn(f"Could not load config from {path}: {e}")
     return defaults
 
+def print_stat_block(stats_text):
+    """Pretty-print `git --stat` output, colourising file names and +/- bars."""
+    for line in stats_text.split("\n"):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if "|" in line and not stripped.startswith("commit"):
+            name, rest = line.split("|", 1)
+            colored = ""
+            for ch in rest:
+                if ch == "+":
+                    colored += f"{c(COLOR_GREEN)}+{c(COLOR_RESET)}"
+                elif ch == "-":
+                    colored += f"{c(COLOR_RED)}-{c(COLOR_RESET)}"
+                else:
+                    colored += ch
+            print(f"  {c(COLOR_SKY_BLUE)}{name.rstrip()}{c(COLOR_RESET)} |{colored}")
+        elif re.search(r"\d+ files? changed", line):
+            summary = re.sub(r"(\d+ insertions?\(\+\))", rf"{c(COLOR_GREEN)}\1{c(COLOR_RESET)}", line)
+            summary = re.sub(r"(\d+ deletions?\(-\))", rf"{c(COLOR_RED)}\1{c(COLOR_RESET)}", summary)
+            print(f"  {c(COLOR_BOLD)}{summary.strip()}{c(COLOR_RESET)}")
+        elif stripped.startswith("commit "):
+            print(f"  {c(COLOR_MAGENTA)}{c(COLOR_BOLD)}{stripped}{c(COLOR_RESET)}")
+        elif stripped.startswith(("Author:", "Date:", "Merge:")):
+            print(f"  {c(COLOR_SKY_BLUE)}{stripped}{c(COLOR_RESET)}")
+        else:
+            print(f"  {line}")
+
+def show_changed_files_viewer():
+    """List staged, unstaged and untracked files (no file contents)."""
+    staged, unstaged, untracked, details = get_git_files(include_details=True)
+    total = len(staged) + len(unstaged) + len(untracked)
+    if total == 0:
+        print_success("Working tree is clean - no changed files.")
+        return
+
+    print_info(f"Changed files: {total}")
+
+    if staged:
+        print(f"\n  {c(COLOR_GREEN)}{c(COLOR_BOLD)}Staged ({len(staged)}):{c(COLOR_RESET)}")
+        for f in staged:
+            info = details.get(f, {})
+            orig = info.get("orig_path")
+            label = f"{orig} -> {f}" if orig else f
+            print(f"    {c(COLOR_GREEN)}+{c(COLOR_RESET)} {label}  {c(COLOR_YELLOW)}({info.get('staged', 'staged')}){c(COLOR_RESET)}")
+
+    if unstaged:
+        print(f"\n  {c(COLOR_YELLOW)}{c(COLOR_BOLD)}Unstaged / modified ({len(unstaged)}):{c(COLOR_RESET)}")
+        for f in unstaged:
+            info = details.get(f, {})
+            print(f"    {c(COLOR_YELLOW)}~{c(COLOR_RESET)} {f}  {c(COLOR_YELLOW)}({info.get('unstaged', 'modified')}){c(COLOR_RESET)}")
+
+    if untracked:
+        print(f"\n  {c(COLOR_RED)}{c(COLOR_BOLD)}Untracked ({len(untracked)}):{c(COLOR_RESET)}")
+        for f in untracked:
+            print(f"    {c(COLOR_RED)}?{c(COLOR_RESET)} {f}")
+
+    staged_stats = run_git_cmd(["diff", "--cached", "--stat"])
+    if staged_stats:
+        print(f"\n  {c(COLOR_BOLD)}Staged change summary (+/-):{c(COLOR_RESET)}")
+        print_stat_block(staged_stats)
+
+def show_commit_detail(commit_hash):
+    """Show one commit's metadata and per-file +/- stats (not the full diff)."""
+    out = run_git_cmd(["show", "--stat", "--no-color", "--date=local", commit_hash])
+    if not out:
+        print_warn(f"Could not read commit {commit_hash}.")
+        return
+    print()
+    print(f"{c(COLOR_MAGENTA)}{c(COLOR_BOLD)}================ COMMIT {commit_hash[:12]} ================{c(COLOR_RESET)}")
+    print_stat_block(out)
+    input("\nPress Enter to return to the commit list...")
+
+def browse_commit_history(per_page=20):
+    """Page through the commit log; open any commit to inspect files changed."""
+    total_raw = run_git_cmd(["rev-list", "--count", "HEAD"])
+    try:
+        total = int(total_raw) if total_raw else 0
+    except ValueError:
+        total = 0
+    if total == 0:
+        print_info("No commits found in this repository yet.")
+        return
+
+    page_count = (total + per_page - 1) // per_page
+    page = 0
+    fmt = "%h%x1f%ad%x1f%an%x1f%s"
+
+    while True:
+        out = run_git_cmd(
+            ["log", f"-n{per_page}", f"--skip={page * per_page}", f"--pretty=format:{fmt}", "--date=short"],
+            strip=False
+        ) or ""
+        commits = []
+        for record in out.replace("\r", "").split("\n"):
+            if not record.strip():
+                continue
+            parts = record.split("\x1f")
+            if len(parts) == 4:
+                commits.append(parts)
+
+        print()
+        print(f"{c(COLOR_MAGENTA)}{c(COLOR_BOLD)}--- Commit History (page {page + 1}/{page_count}, {total} commits) ---{c(COLOR_RESET)}")
+        if not commits:
+            print("  (no commits on this page)")
+        for idx, (h, date, author, subject) in enumerate(commits, 1):
+            print(f"  {c(COLOR_BOLD)}{idx:>2}{c(COLOR_RESET)}) {c(COLOR_YELLOW)}{h}{c(COLOR_RESET)} {c(COLOR_SKY_BLUE)}{date}{c(COLOR_RESET)} {subject} {c(COLOR_GREEN)}({author}){c(COLOR_RESET)}")
+
+        nav = []
+        if page > 0:
+            nav.append("p=prev")
+        if page < page_count - 1:
+            nav.append("n=next")
+        hint = "  Enter a commit number to open it"
+        if nav:
+            hint += ", " + ", ".join(nav)
+        print(f"\n{hint}")
+        print("  b) Back to viewer menu")
+
+        choice = input(f"\n{c(COLOR_CYAN)}History choice [n/p/b or number] [b]:{c(COLOR_RESET)} ").strip().lower()
+        if choice in ("", "b"):
+            return
+        if choice == "n":
+            if page < page_count - 1:
+                page += 1
+            else:
+                print_info("Already on the last page.")
+            continue
+        if choice == "p":
+            if page > 0:
+                page -= 1
+            else:
+                print_info("Already on the first page.")
+            continue
+        if choice.isdigit():
+            num = int(choice)
+            if 1 <= num <= len(commits):
+                show_commit_detail(commits[num - 1][0])
+                continue
+        print_warn("Invalid selection.")
+
+def browse_git_viewer():
+    """Interactive, read-only viewer for changed files and past commits.
+
+    Returns None when the user chooses Back so the caller can continue.
+    """
+    while True:
+        print()
+        print(f"{c(COLOR_MAGENTA)}{c(COLOR_BOLD)}================ CommitGen Viewer ================{c(COLOR_RESET)}")
+        print(f"  {c(COLOR_BOLD)}1{c(COLOR_RESET)}) Changed files (staged / unstaged / untracked)")
+        print(f"  {c(COLOR_BOLD)}2{c(COLOR_RESET)}) Commit history (browse past commits)")
+        print(f"  {c(COLOR_BOLD)}3{c(COLOR_RESET)}) Back to start")
+        choice = input(f"\n{c(COLOR_CYAN)}Viewer choice [1-3] [3]:{c(COLOR_RESET)} ").strip().lower()
+        if choice == "1":
+            show_changed_files_viewer()
+        elif choice == "2":
+            browse_commit_history()
+        else:
+            return None
+
+def prompt_startup_mode():
+    """Top-level startup menu: commit, open the viewer, or quit.
+
+    Returns 'commit', 'viewer' or 'quit'. Defaults to 'commit' on Enter so the
+    common path adds no friction.
+    """
+    print(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}What would you like to do?{c(COLOR_RESET)}")
+    print(f"  {c(COLOR_GREEN)}{c(COLOR_BOLD)}1{c(COLOR_RESET)}) Commit changes (AI commit generator) {c(COLOR_GREEN)}[Default]{c(COLOR_RESET)}")
+    print(f"  {c(COLOR_BOLD)}2{c(COLOR_RESET)}) Browse changes & commit history (viewer)")
+    print(f"  {c(COLOR_RED)}{c(COLOR_BOLD)}0{c(COLOR_RESET)}) Quit")
+    choice = input(f"\n{c(COLOR_CYAN)}Choice [1/2/0] [1]:{c(COLOR_RESET)} ").strip().lower()
+    if choice in ('2', 'v', 'viewer', 'browse'):
+        return 'viewer'
+    if choice in ('0', 'q', 'quit', 'exit'):
+        return 'quit'
+    return 'commit'
+
+
 def prompt_select_model(current_model="gemini-3.5-flash-lite"):
     """Ask user which Gemini model to use, defaulting to 3.5 (gemini-3.5-flash-lite), with options to select 3.1 or custom."""
     print(f"\n{c(COLOR_CYAN)}{c(COLOR_BOLD)}Select Gemini Model:{c(COLOR_RESET)}")
     print(f"  {c(COLOR_BOLD)}1{c(COLOR_RESET)}) gemini-3.5-flash-lite {c(COLOR_GREEN)}[Default / 3.5]{c(COLOR_RESET)}")
     print(f"  {c(COLOR_BOLD)}2{c(COLOR_RESET)}) gemini-3.1-flash-lite [3.1]")
     print(f"  {c(COLOR_BOLD)}3{c(COLOR_RESET)}) Custom model")
-    
+
     choice = input(f"\n{c(COLOR_CYAN)}Choice [1-3] [1]:{c(COLOR_RESET)} ").strip().lower()
     if choice in ('1', ''):
         return "gemini-3.5-flash-lite"
@@ -1741,6 +1919,20 @@ def main():
     details = {}
 
     show_startup_banner()
+
+    # Interactive startup: choose between committing and browsing history.
+    # Non-interactive runs, and runs with an explicit --model, skip straight to
+    # committing so automation is unaffected.
+    if not cli_model and not NON_INTERACTIVE:
+        while True:
+            mode = prompt_startup_mode()
+            if mode == 'quit':
+                print_info("Exiting CommitGen.")
+                return False
+            if mode == 'viewer':
+                browse_git_viewer()
+                continue
+            break
 
     if cli_model:
         model = cli_model
@@ -2258,13 +2450,14 @@ Git Diff:
             print(f"  {c(COLOR_MAGENTA)}{c(COLOR_BOLD)}m{c(COLOR_RESET)}) Switch Gemini model (current: {model})")
         print(f"  {c(COLOR_BLUE)}{c(COLOR_BOLD)}t{c(COLOR_RESET)}) Toggle Co-Authored-By attribution (currently: {'yes' if include_co_author else 'no'})")
         print(f"  {c(COLOR_CYAN)}{c(COLOR_BOLD)}d{c(COLOR_RESET)}) View diff")
+        print(f"  {c(COLOR_BOLD)}w{c(COLOR_RESET)}) Browse changes & commit history")
         print(f"  {c(COLOR_MAGENTA)}{c(COLOR_BOLD)}s{c(COLOR_RESET)}) Spell check")
         print(f"  {c(COLOR_RED)}{c(COLOR_BOLD)}x{c(COLOR_RESET)}) Cancel")
 
         if NON_INTERACTIVE:
             action = "c"
         else:
-            action = input(f"\nAction [c/e/{'g/m/h/v/' if commit_mode == 'new' else 'm/'}t/d/s/x] [c]: ").strip().lower()
+            action = input(f"\nAction [c/e/{'g/m/h/v/' if commit_mode == 'new' else 'm/'}w/t/d/s/x] [c]: ").strip().lower()
             if not action:
                 action = "c"
 
@@ -2328,6 +2521,9 @@ Git Diff:
                     subprocess.run(["more"], input=diff, text=True)
                 except FileNotFoundError:
                     print(diff)
+            continue
+        elif action == "w":
+            browse_git_viewer()
             continue
         elif action == "s":
             misspelled = check_spelling(f"{summary}\n{description}")

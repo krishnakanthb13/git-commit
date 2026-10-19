@@ -87,7 +87,7 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
   - **Header Status Badge**: Shows active project folder, AI model, and branch status with upstream sync indicators (`🌿 Branch: main [up to date]`)
   - **Commit Mode Selection**: Choose between new commit, amend, or fresh amend at startup
   - **Interactive Staging & Range Selection**: Stage, unstage (`u`), and proceed (`p`) with granular status tags (`staged: modified`, `staged: untracked`, `staged: renamed`, `staged: deleted`) and rename mappings (`old -> new`). Supports comma-separated numbers, ranges (e.g. `1,3-5`), and keywords (`all`, `*`).
-  - Review, edit (`e`), spell-check (`s`), or preview diffs (`d`) before committing, with granular staged badges displayed under `Files to commit:`
+  - Review, edit (`e`), spell-check (`s`), preview diffs (`d`), or browse history (`w`) before committing, with granular staged badges displayed under `Files to commit:`
   - Color-coded version bump options (`v`) with semantic highlights (patch: green, minor: cyan, major: magenta, none: yellow) — only shown for new commits
   - Monitor CI pipelines live directly after pushing
   - Validation warnings (including version tag collision warning) displayed in review screen
@@ -145,10 +145,22 @@ python git_commit.py --3.1        # force gemini-3.1-flash-lite
 
 ### Options inside the tool:
 
-**Model Selection Prompt** (appears at interactive startup):
+**Startup Mode Menu** (the first prompt in interactive runs; skipped for non-interactive/CI and `--model` runs):
+- `1`: Commit changes (AI commit generator) — default, so pressing Enter goes straight to committing
+- `2`: Browse changes & commit history (opens the viewer)
+- `0`: Quit (`q` also accepted)
+
+**Model Selection Prompt** (shown after choosing to commit):
 - `1`: `gemini-3.5-flash-lite` (default)
 - `2`: `gemini-3.1-flash-lite`
 - `3`: Custom model entry
+
+**Viewer** (startup mode menu option `2`, or `w` from the commit review screen):
+- `1`: Changed files — lists staged, unstaged/modified and untracked files (grouped, with a staged `+/-` summary). File contents are never shown.
+- `2`: Commit history — pages through all commits; enter a commit number to see its metadata and the files it changed with `+/-` change bars (no line-by-line diff).
+- `3`: Back to start.
+
+The viewer is read-only — it never stages, commits, or modifies files.
 
 **Startup Remote Pull**:
 - Prompts whether to pull latest changes from remote (defaults to `n` on Enter so uncommitted work is not unexpectedly rebased unless requested).
@@ -180,6 +192,7 @@ python git_commit.py --3.1        # force gemini-3.1-flash-lite
 - `v`: Change version bump with color-coded choices (`patch`: green, `minor`: cyan, `major`: magenta, `none`: yellow, `custom`) - **only shown for new commits**
 - `t`: Toggle Co-Authored-By attribution trailer on/off dynamically before committing
 - `d`: View the full git diff in `less` (with `-R` for color support)
+- `w`: Open the changes & commit-history viewer without cancelling the current commit
 - `s`: Run a spell-check via `aspell`
 - `x`: Cancel and exit
 

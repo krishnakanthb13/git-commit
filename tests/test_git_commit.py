@@ -269,3 +269,70 @@ def test_check_remote_tag_requires_exact_match(tmp_path, monkeypatch):
     assert gc.check_remote_tag("v1.2.34") is True
     assert gc.check_remote_tag("v1.2.3") is False
     assert gc.check_remote_tag("v9.9.9") is False
+
+
+# --------------------------------------------------------------------- viewer
+def _feed_inputs(monkeypatch, answers):
+    """Patch gc.input to return the supplied answers in order."""
+    it = iter(answers)
+    monkeypatch.setattr(gc, "input", lambda prompt="": next(it, ""))
+
+
+def test_prompt_startup_mode_variants(monkeypatch):
+    _feed_inputs(monkeypatch, ["2"])
+    assert gc.prompt_startup_mode() == "viewer"
+    _feed_inputs(monkeypatch, ["0"])
+    assert gc.prompt_startup_mode() == "quit"
+    _feed_inputs(monkeypatch, [""])
+    assert gc.prompt_startup_mode() == "commit"  # default on Enter
+    _feed_inputs(monkeypatch, ["1"])
+    assert gc.prompt_startup_mode() == "commit"
+
+
+def test_prompt_select_model_reverted_to_three_options(monkeypatch):
+    # Option 4 no longer lives in the model prompt; it is now the startup menu.
+    _feed_inputs(monkeypatch, ["2"])
+    assert gc.prompt_select_model() == "gemini-3.1-flash-lite"
+
+
+def test_show_changed_files_viewer_groups_files(tmp_path, monkeypatch, capsys):
+    _init_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "tracked.txt").write_text("one\n", encoding="utf-8")
+    (tmp_path / "modified.txt").write_text("a\n", encoding="utf-8")
+    _git("add", ".")
+    _git("commit", "-qm", "initial")
+
+    # One staged change, one unstaged change, one untracked file.
+    (tmp_path / "tracked.txt").write_text("two\n", encoding="utf-8")
+    _git("add", "tracked.txt")
+    (tmp_path / "modified.txt").write_text("b\n", encoding="utf-8")
+    (tmp_path / "brand_new.txt").write_text("new\n", encoding="utf-8")
+
+    gc.show_changed_files_viewer()
+    out = capsys.readouterr().out
+
+    assert "Changed files" in out
+    assert "Staged" in out and "tracked.txt" in out
+    assert "Unstaged" in out and "modified.txt" in out
+    assert "Untracked" in out and "brand_new.txt" in out
+
+
+def test_browse_commit_history_opens_commit_details(tmp_path, monkeypatch, capsys):
+    _init_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "sample.txt").write_text("hello\nworld\n", encoding="utf-8")
+    _git("add", "sample.txt")
+    _git("commit", "-qm", "add sample file")
+
+    # 1 -> open first commit, "" -> return from detail, b -> back to menu.
+    _feed_inputs(monkeypatch, ["1", "", "b"])
+    gc.browse_commit_history(per_page=5)
+    out = capsys.readouterr().out
+
+    assert "Commit History" in out
+    assert "add sample file" in out
+    # Per-file +/- stats are shown, but not the file contents.
+    assert "sample.txt" in out
+    assert "file changed" in out
+    assert "hello" not in out
