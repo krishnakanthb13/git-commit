@@ -185,15 +185,26 @@ The viewer is read-only — it never stages, commits, or modifies files.
 
 **Context**: Provide optional notes to steer the AI. You can also specify version in context (e.g., "v1.2.3") for auto-detection.
 
-**Review Screen**:
+**Review Screen** (options are grouped under labelled headers):
+
+**Commit**
 - `c`: Execute the commit or amend (default on Enter)
 - `e`: Manually edit the generated summary/description
+
+**AI & Attribution**
+- `g`: Regenerate the commit message with the AI (**new commits only**)
 - `m`: Switch Gemini model (`gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`, or custom) at will and optionally regenerate
-- `v`: Change version bump with color-coded choices (`patch`: green, `minor`: cyan, `major`: magenta, `none`: yellow, `custom`) - **only shown for new commits**
 - `t`: Toggle Co-Authored-By attribution trailer on/off dynamically before committing
+
+**Version** (**new commits only**)
+- `v`: Change version bump with color-coded choices (`patch`: green, `minor`: cyan, `major`: magenta, `none`: yellow, `custom`)
+- `h`: Show version history (git tags with dates)
+
+**Inspect**
 - `d`: View the full git diff in `less` (with `-R` for color support)
 - `w`: Open the changes & commit-history viewer without cancelling the current commit
 - `s`: Run a spell-check via `aspell`
+
 - `x`: Cancel and exit
 
 **Post-Commit Actions**:
