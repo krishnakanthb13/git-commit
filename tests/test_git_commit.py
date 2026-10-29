@@ -7,6 +7,7 @@ truncation, commit rollback, tag handling and rename staging.
 They use temporary directories/repositories and never touch the network.
 Run with:  python -m pytest
 """
+import io
 import os
 import subprocess
 import sys
@@ -770,6 +771,76 @@ def test_print_honors_explicit_sep(capsys):
     assert capsys.readouterr().out == "ab\n"
     gc.print("a", "b")
     assert capsys.readouterr().out == "a b\n"
+
+
+# --------------------------------------------------------------- output spacing
+def _reset_output_state(monkeypatch):
+    monkeypatch.setattr(gc, "_last_output_blank", False)
+
+
+def test_print_blank_never_stacks(capsys, monkeypatch):
+    _reset_output_state(monkeypatch)
+    gc.print("A")
+    gc.print_blank()
+    gc.print_blank()
+    gc.print("B")
+    assert capsys.readouterr().out == "A\n\nB\n"
+
+
+def test_print_collapses_leading_newline_after_blank_row(capsys, monkeypatch):
+    _reset_output_state(monkeypatch)
+    gc.print("A")
+    gc.print_blank()
+    gc.print("\nB")  # banner-style newline must not add a second blank row
+    gc.print_blank()
+    gc.print("\nC")
+    assert capsys.readouterr().out == "A\n\nB\n\nC\n"
+
+
+def test_print_keeps_leading_newline_after_content(capsys, monkeypatch):
+    _reset_output_state(monkeypatch)
+    gc.print("A")
+    gc.print("\nB")
+    assert capsys.readouterr().out == "A\n\nB\n"
+
+
+def test_trailing_newline_is_not_treated_as_blank_row(capsys, monkeypatch):
+    _reset_output_state(monkeypatch)
+    gc.print("A")  # the line terminator is not itself a blank row
+    gc.print_blank()
+    assert capsys.readouterr().out == "A\n\n"
+
+
+def test_print_end_without_newline_tracks_content(capsys, monkeypatch):
+    _reset_output_state(monkeypatch)
+    gc.print("A", end="")
+    gc.print_blank()  # previous output had content, so a separator is due
+    assert capsys.readouterr().out == "A\n"
+
+
+def test_print_end_blank_counts_as_row(capsys, monkeypatch):
+    _reset_output_state(monkeypatch)
+    gc.print("A")
+    gc.print("", end="\n")  # an explicit blank row
+    gc.print_blank()  # must be suppressed
+    assert capsys.readouterr().out == "A\n\n"
+
+
+def test_print_to_other_file_does_not_affect_spacing(capsys, monkeypatch):
+    _reset_output_state(monkeypatch)
+    sink = io.StringIO()
+    gc.print("hidden", file=sink)
+    gc.print_blank()  # stdout state untouched, so the separator still prints
+    assert capsys.readouterr().out == "\n"
+    assert sink.getvalue() == "hidden\n"
+
+
+def test_mark_restart_resets_blank_tracking(monkeypatch):
+    _reset_output_state(monkeypatch)
+    monkeypatch.setattr(gc.os, "system", lambda _cmd: 0)
+    monkeypatch.setattr(gc, "print_info", lambda _msg: None)
+    gc._mark_restart()
+    assert gc._last_output_blank is True
 
 
 def test_is_ci_environment_treats_falsy_values_as_false(monkeypatch):

@@ -88,10 +88,16 @@ def print(*args, **kwargs):
         sep = " "
     args_str = [str(arg) for arg in args]
     text = sep.join(args_str)
+    # Honour a custom terminator when tracking blank rows. Only stdout output
+    # affects the on-screen vertical rhythm; writes to other files must not.
+    end = kwargs.get("end", "\n")
+    if end is None:
+        end = "\n"
+    tracks_stdout = kwargs.get("file") is None or kwargs.get("file") is sys.stdout
     # A leading "\n" (banners/menus are written as print(f"\n...")) must not
     # stack on top of a separator that already left a blank row. Drop the
     # leading newlines in that case so two empty rows can never appear.
-    if _last_output_blank:
+    if _last_output_blank and tracks_stdout:
         text = text.lstrip("\n")
     try:
         _orig_print(text, **kwargs)
@@ -140,7 +146,15 @@ def print(*args, **kwargs):
                 return
     # Track the last *physical* line written, not the whole string: text like
     # "\nBanner" ends on visible content, while "Footer\n" ends on a blank row.
-    _last_output_blank = not text.rsplit("\n", 1)[-1].strip()
+    # The final newline is a line terminator, not itself a blank row, so strip
+    # exactly one before inspecting the last segment. Unwritten output (empty
+    # text with end="") leaves the previous state untouched.
+    if tracks_stdout:
+        written = text + end
+        if written:
+            if written.endswith("\n"):
+                written = written[:-1]
+            _last_output_blank = not written.rsplit("\n", 1)[-1].strip()
 
 def print_blank():
     """Write a blank separator line, never two in a row.
@@ -219,9 +233,12 @@ def prompt_restart(message="Would you like to restart CommitGen? (y/n) [n]:"):
 
 def _mark_restart():
     """Increment the restart counter, clear the screen and report progress."""
-    global restart_count
+    global restart_count, _last_output_blank
     restart_count += 1
     os.system('cls' if os.name == 'nt' else 'clear')
+    # The screen is empty after clearing, so the cursor sits on a blank row;
+    # without this, a stale "content" state could add an extra blank line.
+    _last_output_blank = True
     run_str = f"{restart_count} run{'s' if restart_count != 1 else ''} completed"
     print_info(f"Restarting CommitGen... ({run_str} | Max {MAX_RESTARTS} restarts)")
 

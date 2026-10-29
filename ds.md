@@ -12,7 +12,7 @@ Priority legend: **C**ritical · **H**igh · **M**edium · **L**ow (polish)
 > `ruff` / `pyflakes` → 8 minor findings (unused variables, needless f-strings,
 > one lambda assignment, one ambiguous variable name).
 >
-> **Status after fixes (2026-10-29, second pass):** `python -m pytest -q` → **68 passed**;
+> **Status after fixes (2026-10-29, second pass):** `python -m pytest -q` → **76 passed**;
 > `ruff` / `pyflakes` → **clean**. All Critical/High findings, the P2 quick wins, and the
 > remaining integrity gaps found while validating this report are resolved — see
 > [Fix status](#fix-status-2026-10-29--resolved).
@@ -50,7 +50,8 @@ Priority legend: **C**ritical · **H**igh · **M**edium · **L**ow (polish)
 
 **P2 fixes:** `.commitgenrc` validation/coercion (`_validate_config()`), truncation budget clamp,
 `print(sep="")`, output blank-row de-duplication (`print_blank()` plus leading-newline collapse in the
-`print()`/`input()` wrappers, so separators and `\n`-prefixed prompts cannot stack into two empty rows),
+`print()`/`input()` wrappers, so separators and `\n`-prefixed prompts cannot stack into two empty rows;
+`end=`/`file=` aware, reset on screen clear, regression-tested),
 changelog `[Unreleased]` placement + `## [X]` headings + checked staging, `.env`
 parser (`export`, inline comments, quotes with trailing comments, BOM), CI falsy values (`CI=false`),
 atomic and validated session state, `--` path separators everywhere, deleted files included in the AI
@@ -68,8 +69,9 @@ unstage-before-HEAD, config validation, truncation clamp, model default, `print`
 values, changelog placement/headings, `--no-verify` contract, `.env` parser (including quoted values
 with trailing comments), stat-block subject, numeric semver, rollback edit preservation, rollback of
 never-written files, unknown remote-tag state, version-source merging, multi-part/prerelease
-detection, pyproject section consistency, empty-message annotated tag relocation, and pre-commit hook
-rename re-staging.
+detection, pyproject section consistency, empty-message annotated tag relocation, pre-commit hook
+rename re-staging, and output blank-row collapse (stacked `print_blank()` calls, leading `\n` banners
+and prompts, `end=` inline/blank output, `file=` isolation, and the screen-clear reset).
 
 **Still open (structural / P3, intentionally not part of this pass):** splitting the monolith into
 modules, replacing `locals()` checks with a `CommitContext` dataclass, a `GitResult`-returning git
