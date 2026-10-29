@@ -88,7 +88,7 @@ This script implements the main execution loop. It is designed to be fully self-
 - `show_file_change_stats(path)`: Read-only per-file `git diff --stat` view (staged and/or unstaged) opened by selecting a file number in the viewer. For untracked entries it reports line count / child-file count instead, since no diff exists. Never shows file contents.
 - `show_changed_files_viewer()`: Read-only screen that reuses the staging picker's exact layout (title, legend, dividers, numbered `[status] name` rows for staged / unstaged / untracked files) and adds file selection to view per-file `+/-` stats via `show_file_change_stats()`, plus `r` refresh and `b` back. File names and change counts only — never file contents.
 - `show_commit_detail(commit_hash)`: Prints a single commit's metadata and per-file `+/-` change bars (`git show --stat --no-color --date=local`), without any line-by-line diff.
-- `browse_commit_history(per_page=20)`: Pages through `git log` (short hash, short date, author, subject) using real `--skip`/`-n` pagination with `n`/`p` page navigation and numeric selection to open a commit via `show_commit_detail()`.
+- `browse_commit_history(per_page=20)`: Pages through `git log` (short hash, local date and time, author, subject) using real `--skip`/`-n` pagination with `n`/`p` page navigation and numeric selection to open a commit via `show_commit_detail()`.
 - `browse_git_viewer()`: Read-only viewer menu (`1` changed files, `2` commit history, `3` back to start). Returns `None` on Back. Reachable from the startup mode menu and from the review loop via `w`; it never modifies the index or working tree.
 - `prompt_select_model()`: Unchanged 3.5 / 3.1 / custom selection (the viewer now lives in the startup mode menu).
 

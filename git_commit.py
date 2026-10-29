@@ -1824,7 +1824,7 @@ def browse_commit_history(per_page=20):
 
     while True:
         out = run_git_cmd(
-            ["log", f"-n{per_page}", f"--skip={page * per_page}", f"--pretty=format:{fmt}", "--date=short"],
+            ["log", f"-n{per_page}", f"--skip={page * per_page}", f"--pretty=format:{fmt}", "--date=format-local:%Y-%m-%d %H:%M"],
             strip=False
         ) or ""
         commits = []
@@ -1840,7 +1840,7 @@ def browse_commit_history(per_page=20):
         if not commits:
             print("  (no commits on this page)")
         for idx, (h, date, author, subject) in enumerate(commits, 1):
-            print(f"  {c(COLOR_BOLD)}{idx:>2}{c(COLOR_RESET)}) {c(COLOR_YELLOW)}{h}{c(COLOR_RESET)} {c(COLOR_SKY_BLUE)}{date}{c(COLOR_RESET)} {subject} {c(COLOR_GREEN)}({author}){c(COLOR_RESET)}")
+            print(f"  {c(COLOR_BOLD)}{idx:>2}{c(COLOR_RESET)}) {c(COLOR_YELLOW)}{h}{c(COLOR_RESET)} {c(COLOR_SKY_BLUE)}{date}{c(COLOR_RESET)} {c(COLOR_GREEN)}({author}){c(COLOR_RESET)} {subject}")
 
         nav = []
         if page > 0:
