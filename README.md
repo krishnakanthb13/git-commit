@@ -25,7 +25,7 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 5. 🏷️ **Manages version bumping** (patch/minor/major/custom/none)
 6. 📦 **Updates project files** (package.json, pyproject.toml)
 7. 📋 **Maintains changelogs** (CHANGELOG.md)
-8. ✅ **Runs pre-commit hooks** before committing
+8. ✅ **Runs pre-commit hooks** before committing; choosing "Commit anyway" after a hook failure commits with `--no-verify` so the installed hooks cannot fail the commit a second time.
 9. 🔍 **Detects binary files** and scopes from file paths
 10. 🔗 **Links issues** from branches/commits
 11. 💾 **Saves session state** for crash recovery (includes commit mode and amend state)
@@ -35,7 +35,7 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 15. 🎨 **Beautiful CLI interface** with colors
 16. ⚙️ **Configuration file** support (.commitgenrc)
 17. 🏃 **CI/CD ready** with non-interactive mode
-18. 🧪 **Dry run mode** for testing
+18. 🧪 **Dry run that gets rolled back**: previews the commit message without stashing, pulling, running hooks, writing session/version files, committing, tagging, or pushing. Any staging needed to build the preview is undone by restoring the raw `.git/index` snapshot on exit, so the tree, index and refs are left as they were found.
 19. 🔍 **Validates commit messages** against conventional commit format (72 char limit, proper format, blank line)
 20. 📊 **Shows commit statistics** with per-extension file counts
 21. 🔤 **Spell checking** integration (via aspell)
@@ -43,19 +43,22 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 23. 📝 **Loads commit templates** from `.git/COMMIT_TEMPLATE` or `.github/PULL_REQUEST_TEMPLATE.md`
 24. 📦 **GitHub Repository Creation**: Auto-prompts to create a public/private repository on GitHub and push code/tags when no git remote is configured.
 25. 🔁 **Continuous Sessions**: Prompts to optionally restart the tool (`Press Enter to exit, or 'r' to restart`) when the working tree is clean, staging is aborted, commits are cancelled, or upon completion/errors, allowing seamless multi-commit workflows without dropping back to the shell.
-26. 🔒 **Security: .env Protection**: Automatically detects and unstages `.env` and `.env.*` files to prevent accidental credential leaks, while allowing safe template and example files (`.env.template`, `.env.example`, `.env.sample`, `.env.dist`) to be committed normally. `.envrc` (direnv config) is never auto-unstaged — it is often tracked project config — but a warning reminds you to check it for secrets before committing.
+26. 🔒 **Security: .env Protection**: Automatically detects and unstages `.env` and `.env.*` files to prevent accidental credential leaks, while allowing safe template and example files (`.env.template`, `.env.example`, `.env.sample`, `.env.dist`) to be committed normally. A staged rename such as `.env -> foo` resets **both** sides, the index is re-checked so neither side may remain staged, a final check runs immediately before every commit/amend, and the run aborts (fails closed) if any part of the rename could not be unstaged. `.envrc` (direnv config) is never auto-unstaged — it is often tracked project config — but a warning reminds you to check it for secrets before committing.
 27. 🤖 **AI Prompt Optimization**: Excludes images, videos, audio, PDFs, and binary files from the Gemini prompt to save tokens and improve analysis quality. Files are still committed normally — only AI analysis is affected.
 28. 👥 **Co-Authored-By Attribution**: Optional git commit trailer (`Co-authored-by: Custom Tool By BKK ({model}) <{model}@users.noreply.github.com>`) to credit AI generation with interactive prompting (defaults to `n`), dynamic review menu toggle (`t`), CLI flags (`--co-author`/`--no-co-author`), and configuration support.
 29. 📁 **Startup Directory Context**: Immediately displays the active project folder name and absolute directory path at launch before model selection.
 30. 🛡️ **Input Buffer Protection**: Automatically purges unconsumed console input buffers before rendering prompts, preventing accidental double-Enter keypresses or premature keystrokes from auto-advancing subsequent menus.
-31. 🩹 **Rollback on Failed Commit**: If a commit fails after version files or the changelog were rewritten, the original file contents are restored and unstaged, so retrying never leaves version drift behind.
-32. 🏷️ **Exact Remote Tag Matching**: Remote tag checks match the precise `refs/tags/<name>` ref (`v1.2.3` never collides with `v1.2.34`), and the remote is checked *before* the local tag is created.
+31. 🩹 **Rollback on Failed Commit**: If a commit fails after version files or the changelog were rewritten, the original file contents are restored and unstaged, so retrying never leaves version drift behind. Edits you make after the tool writes a file are detected and preserved instead of being clobbered.
+32. 🏷️ **Exact Remote Tag Matching**: Remote tag checks match the precise `refs/tags/<name>` ref (`v1.2.3` never collides with `v1.2.34`), and the remote is checked *before* the local tag is created. An unreachable remote is reported as "could not verify" rather than silently treated as "tag absent".
 33. 🔢 **Version Regression Guard**: Custom or context-detected versions that are lower than the current version require explicit confirmation before they are used.
 34. 📋 **Changelog De-duplication**: Re-committing or fresh-amending the same version replaces that version's `CHANGELOG.md` entry instead of adding a duplicate.
 35. 🔀 **Atomic Rename Staging**: When a selected untracked file (or untracked directory) matches an unstaged deletion by filename, both sides are staged together so renames are never committed as a duplicated file.
 36. 🧯 **Closed-Stdin Resilience**: EOF/closed stdin (piped input, CI) exits gracefully instead of crashing or looping, and non-interactive mode never blocks on a prompt.
 37. 🔐 **Secret Redaction**: High-confidence secrets (AWS keys, GitHub/Gemini tokens, credentials embedded in URLs) are redacted from the AI prompt only — the committed content is never modified. Each redaction is reported by category with a masked preview so fixtures can be told apart from real secrets.
 38. 🏷️ **Annotated Tag Preservation**: Relocating tags on amend keeps annotated tags annotated and preserves their messages.
+39. 🚧 **Merge-Conflict Awareness**: Unresolved conflicts and staged/unstaged type changes are parsed and displayed; the commit is blocked with a clear message (and the picker refuses to run) until the conflicts are resolved.
+40. 📁 **Commit from Anywhere**: The tool moves to the repository root at startup, so staging, diffs, `.commitgenrc` and `.env` all resolve correctly when launched from a subdirectory (the banner still shows the directory you launched from).
+41. 📐 **Consistent Spacing**: Separator helpers use `print_blank()`, and the `print()`/`input()` wrappers drop a leading newline when the previous line was already blank. Prompts, banners and menus can therefore no longer stack into two empty rows ("double-Enter") no matter which path is taken.
 
 **A comprehensive Git commit tool** that handles the entire workflow from staging to CI monitoring with excellent error handling and user experience.
 
@@ -71,13 +74,13 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
   - **Fresh Amend**: Completely replace the last commit message with AI-generated content
   - Smart force-push detection for amended commits
   - Session recovery preserves commit mode across crashes
-- 📦 **Semantic Versioning**: Auto-detects versions from git tags, recent commit messages, `package.json`, or `pyproject.toml`. Parses versions into integer tuples (supporting standard SemVer and multi-part versions like `v1.1.1.11`) and sorts choices in descending order so the highest version is the default option (`1`). Existing multi-part version prefixes (e.g. `1.1.1.11 - ...`) are detected and stripped correctly. Prompts for confirmation if a lower version is selected — including custom or context-detected versions that would regress the version — before proceeding or returning to selection. Automatically stages version files after a bump. Skips version bump for amend mode by default. Includes local version collision detection (warnings when the proposed bump already exists as a local tag) and an **exact** remote tag check (`refs/tags/<name>`, so `v1.2.3` never matches `v1.2.34`) performed *before* the tag is created.
+- 📦 **Semantic Versioning**: Auto-detects versions from git tags, recent commit messages, `package.json`, or `pyproject.toml`. Tags and commit-message prefixes may be standard SemVer, multi-part (`v1.1.1.11`), or carry pre-release/build suffixes (`v1.2.3-rc1`). Parses versions into integer tuples and sorts choices in descending order so the highest version is the default option (`1`). Sources that report the same version are merged into a single choice whose label names every source (e.g. `v1.0.0 (from git tag, git commit)`), and `1.2.3`/`v1.2.3` are not listed twice. Detection and updates share one section-aware `pyproject.toml` reader (`[project]` / `[tool.poetry]` only, never `[tool.commitizen]` or other tool tables). Prompts for confirmation if a lower version is selected — including custom or context-detected versions that would regress the version — before proceeding or returning to selection. Automatically stages version files after a bump. Skips version bump for amend mode by default. Includes local version collision detection (warnings when the proposed bump already exists as a local tag) and an **exact** remote tag check (`refs/tags/<name>`, so `v1.2.3` never matches `v1.2.34`) performed *before* the tag is created.
 - 📜 **Changelog & PR Management**: Automatically updates `CHANGELOG.md` — re-writing the entry for an already-existing version instead of duplicating it — and can create GitHub Pull Requests using `gh` CLI.
 - 🩹 **Failure-Safe Versioning**: Version files and the changelog are snapshotted before they are rewritten. If the commit fails, the originals are restored and unstaged, keeping the working tree consistent for a retry.
 - 🤖 **Smart Context**: Detects architectural scope from file paths, extracts issue numbers from branch names, respects `.git/COMMIT_TEMPLATE` and `.github/PULL_REQUEST_TEMPLATE.md`, and learns from your repo's commit history. For amend mode, includes the original commit message as context.
-- 🔒 **Robustness & Input Hygiene**: Proactive console input buffer flushing (`FlushConsoleInputBuffer` and `msvcrt` on Windows, `tcflush` on POSIX) eliminates skipped prompts caused by accidental double-Enters or premature keystrokes while preserving piped input; binary file existence checks, pre-commit hook integration, session recovery (crash-safe with commit mode preservation), startup dependency checks, safe ANSI color fallback via `c()` helper, and remote/local tag conflict checks.
+- 🔒 **Robustness & Input Hygiene**: Proactive console input buffer flushing (`FlushConsoleInputBuffer` and `msvcrt` on Windows, `tcflush` on POSIX) eliminates skipped prompts caused by accidental double-Enters or premature keystrokes while preserving piped input; a blank-line guard (`print_blank()` plus leading-newline collapse in the `print()`/`input()` wrappers) keeps separators from stacking into two empty rows; binary file existence checks, pre-commit hook integration, session recovery (crash-safe with commit mode preservation), startup dependency checks, safe ANSI color fallback via `c()` helper, and remote/local tag conflict checks.
 - ⚙️ **Configurable**: Per-repo `.commitgenrc` JSON config for default bump type, diff size, and model. Global config via `~/.commitgenrc`.
-- 🚀 **CI/CD Ready**: `--dry-run` and `--non-interactive` flags for headless/automated environments. Auto-detects CI environments (GitHub Actions, GitLab CI, Jenkins, Travis). Non-interactive mode is fully prompt-free: it auto-stages everything, selects the commit action, uses the highest detected version, skips tag creation unless `auto_tag: true`, skips pushing unless `auto_push: true`, never force-pushes amended commits, honors `auto_pull` silently, skips PR creation and CI monitoring, and aborts the commit if pre-commit hooks fail.
+- 🚀 **CI/CD Ready**: `--dry-run` and `--non-interactive` flags for headless/automated environments. Auto-detects CI environments (GitHub Actions, GitLab CI, Jenkins, Travis); explicit falsy values (`CI=false`, `0`, `no`, `off`) do not trigger headless mode. Non-interactive mode is fully prompt-free: it auto-stages everything, selects the commit action, uses the highest detected version, skips tag creation unless `auto_tag: true`, skips pushing unless `auto_push: true`, never force-pushes amended commits, honors `auto_pull` silently before pushes (the startup pull is skipped), skips PR creation and CI monitoring, and aborts the commit if pre-commit hooks fail.
 - 🔐 **Secret Redaction**: The AI prompt is scrubbed of high-confidence secrets (AWS access keys, GitHub/Gemini tokens, bearer tokens, credentials embedded in URLs) before it leaves your machine. Each match is reported by category with a masked preview (e.g. `AWS access key id: AKIA****************`), so test fixtures are distinguishable from real secrets. Only the prompt is affected — the diff that is committed is never modified.
 - 🧯 **Resilient Input Handling**: A dedicated restart helper (`prompt_restart()`) and an `(KeyboardInterrupt, EOFError)` guard in the top-level loop mean a closed stdin (piped input or CI) exits cleanly instead of crashing or looping.
 - 🔍 **Commit Validation**: Validates commit messages against conventional commit format (72 char limit, proper format, blank line after title). Shows warnings in review screen for format violations and version tag collisions.
@@ -86,7 +89,7 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 - 🛠️ **Interactive UI**:
   - **Header Status Badge**: Shows active project folder, AI model, and branch status with upstream sync indicators (`🌿 Branch: main [up to date]`)
   - **Commit Mode Selection**: Choose between new commit, amend, or fresh amend at startup
-  - **Interactive Staging & Range Selection**: Stage, unstage (`u`), and proceed (`p`) with granular status tags (`staged: modified`, `staged: untracked`, `staged: renamed`, `staged: deleted`) and rename mappings (`old -> new`). Supports comma-separated numbers, ranges (e.g. `1,3-5`), and keywords (`all`, `*`).
+  - **Interactive Staging & Range Selection**: Stage, unstage (`u`), and proceed (`p`) with granular status tags (`staged: modified`, `staged: untracked`, `staged: renamed`, `staged: deleted`, `staged: typechange`) and rename mappings (`old -> new`). Supports comma-separated numbers, ranges (e.g. `1,3-5`), and keywords (`all`, `*`); the picker refuses to run while unresolved merge conflicts exist.
   - Review, edit (`e`), spell-check (`s`), preview diffs (`d`), or browse history (`w`) before committing, with granular staged badges displayed under `Files to commit:`
   - Color-coded version bump options (`v`) with semantic highlights (patch: green, minor: cyan, major: magenta, none: yellow) — only shown for new commits
   - Monitor CI pipelines live directly after pushing
@@ -98,7 +101,7 @@ A professional, zero-dependency Python CLI tool that uses Google's Gemini API (s
 
 ```
 git-commit/
-├── git_commit.py              ← main tool (~2,500 lines)
+├── git_commit.py              ← main tool (~3,600 lines)
 ├── register.py                ← install/uninstall context menu (winreg)
 ├── tests/                     ← pytest regression suite (no network required)
 │   └── test_git_commit.py
@@ -123,21 +126,21 @@ git-commit/
    GEMINI_MODEL=gemini-3.5-flash-lite  # (optional, this is the default)
    ```
 
-*Note: The script automatically resolves and loads the `.env` file from the directory where `git_commit.py` is installed/located, so you can execute the command from any folder. If a `.env` file is also present in the current working directory, it is loaded as well to allow project-specific overrides. Precedence is: real environment variables (never overridden) → project `.env` (current directory) → tool-directory `.env`. This means CI-provided environment variables always win over any `.env` file.*
+*Note: The script automatically resolves and loads the `.env` file from the directory where `git_commit.py` is installed/located, so you can execute the command from any folder. Because the tool switches to the repository root at startup, a project `.env` there is also loaded to allow project-specific overrides. Precedence is: real environment variables (never overridden) → project `.env` (repository root) → tool-directory `.env`. This means CI-provided environment variables always win over any `.env` file. The parser understands `export` prefixes, inline `# comments`, quoted values, and an optional UTF-8 BOM.*
 
 ## Usage
 
 ```bash
 python git_commit.py              # normal interactive mode
-python git_commit.py --dry-run    # preview commit without making changes
+python git_commit.py --dry-run    # preview the commit; the index is restored afterwards
 python git_commit.py --non-interactive  # headless/CI mode (no prompts)
 python git_commit.py --3.5        # force gemini-3.5-flash-lite
 python git_commit.py --3.1        # force gemini-3.1-flash-lite
 ```
 
 **Command-line Options:**
-- `--dry-run`: Preview the commit message and actions without making any changes
-- `--non-interactive`: Run in headless mode (auto-stages all files, no prompts, uses defaults). Tag creation is skipped unless `auto_tag: true`, pushing is skipped unless `auto_push: true`, amended commits are never force-pushed, `auto_pull` is honored silently, and PR/CI monitoring is skipped.
+- `--dry-run`: Preview the commit message and actions without committing. Staging performed to build the preview is undone and the original index is restored on exit.
+- `--non-interactive`: Run in headless mode (auto-stages all files, no prompts, uses defaults). Tag creation is skipped unless `auto_tag: true`, pushing is skipped unless `auto_push: true`, amended commits are never force-pushed, `auto_pull` is honored silently before pushes (the startup pull is skipped), and PR/CI monitoring is skipped.
 - `--model <name>`, `--3.5`, `--3.1`: Specify Gemini model to use
 - `--co-author` / `--no-co-author`: Enable or disable Co-Authored-By attribution trailer
 
@@ -156,11 +159,11 @@ python git_commit.py --3.1        # force gemini-3.1-flash-lite
 - `3`: Custom model entry
 
 **Viewer** (startup mode menu option `2`, or `w` from the commit review screen):
-- `1`: Changed files — read-only version of the staging picker's file list (same legend, divider and `[status]` badges for staged / unstaged / untracked). Enter a file number to view its per-file `+/-` stats (`r` to refresh, `b` to go back). File contents are never shown.
+- `1`: Changed files — read-only version of the staging picker's file list (same legend, divider and `[status]` badges for staged / unstaged / untracked, plus `[conflict: needs resolution]` for unmerged files). Enter a file number to view its per-file `+/-` stats (`r` to refresh, `b` to go back). File contents are never shown.
 - `2`: Commit history — pages through all commits (dated and timestamped); enter a commit number to see its metadata and the files it changed with `+/-` change bars (no line-by-line diff).
 - `3`: Back to start.
 
-The viewer is read-only — it never stages, commits, or modifies files.
+The viewer is read-only — it never stages, commits, or modifies files — and no `GEMINI_API_KEY` is required to use it.
 
 **Startup Remote Pull**:
 - Prompts whether to pull latest changes from remote (defaults to `n` on Enter so uncommitted work is not unexpectedly rebased unless requested).
@@ -221,6 +224,7 @@ Create a `.commitgenrc` JSON file in your repo (or `~/.commitgenrc` globally) to
 {
   "default_bump": "minor",
   "max_diff_length": 500000,
+  "max_input_tokens": 900000,
   "auto_push": false,
   "auto_pull": true,
   "model": "gemini-3.5-flash-lite",
@@ -239,12 +243,15 @@ Create a `.commitgenrc` JSON file in your repo (or `~/.commitgenrc` globally) to
 **Available options**:
 - `default_bump`: Default version bump type (`patch`, `minor`, `major`, `none`)
 - `max_diff_length`: Maximum diff size in characters (default: 500000)
+- `max_input_tokens`: Token budget for the prompt, used to clamp diff truncation (default: 900000)
 - `auto_push`: Automatically push after commit (default: false)
 - `auto_pull`: Automatically pull before push (default: true)
 - `model`: Gemini model to use (default: `gemini-3.5-flash-lite`)
 - `auto_tag`: Automatically create/move git tags without confirmation prompt (default: `false` for safety)
 - `co_author`: Include Co-Authored-By attribution trailer by default (default: `false`)
 - `show_tree`: Show the repository structure tree at startup (default: `true`; set to `false` on large repos)
+
+Config values are validated when loaded: wrong types, out-of-range numbers, and unknown bump values are reported and fall back to the built-in defaults instead of failing later in the commit flow.
 
 ## Windows Right-Click Context Menu Integration
 
@@ -262,11 +269,11 @@ python register.py --uninstall
 
 ## Running from a Subdirectory
 
-Session state and commit templates are stored under the repository's Git directory, which is resolved to an absolute path at startup (`git rev-parse --absolute-git-dir`). You can therefore launch the tool from any subdirectory of a repository and crash-recovery/session features keep working. If the tool is launched outside a Git repository it exits immediately with a clear error.
+At startup the tool resolves the repository's Git directory (`git rev-parse --absolute-git-dir`) and switches to the repository root (`git rev-parse --show-toplevel`). Session state and commit templates live under the Git directory, and because Git reports status paths relative to the root while `git add`/`git diff -- <path>` resolve them against the working directory, running from the root is what keeps staging and diffs correct — `.commitgenrc`, `.env`, `package.json`, `pyproject.toml` and `.pre-commit-config.yaml` are all found there too. You can therefore launch the tool from any subdirectory of a repository; the startup banner still shows the directory you launched from. If the tool is launched outside a Git repository it exits immediately with a clear error.
 
 ## Testing
 
-A pytest regression suite lives in `tests/` and covers version handling, changelog de-duplication, `.env` precedence, secret redaction, diff truncation, commit rollback, tag relocation, rename staging, and exact remote tag matching. It uses temporary repositories and never touches the network:
+A pytest regression suite lives in `tests/` (68 tests) and covers version handling (`package.json` and `pyproject.toml`), multi-part and pre-release version detection from tags and commit prefixes, changelog placement/de-duplication, `.env` precedence and parsing (including quoted values with trailing comments), the `.env` rename/fail-closed guard and final pre-commit secret check, secret redaction, diff truncation, commit rollback, annotated/empty-message tag relocation, rename staging (picker and pre-commit hook renames), unstaging before the first commit, merge-conflict and type-change parsing, dry-run index restoration and session-state inertness, config validation, exact remote tag matching, and staging from a subdirectory. It uses temporary repositories and never touches the network:
 
 ```bash
 python -m pytest
